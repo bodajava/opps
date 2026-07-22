@@ -15,6 +15,7 @@ import { UsersModule } from '../users/users.module';
 import { JwtStrategy } from '../common/strategies/jwt.strategy';
 import { JwtRefreshStrategy } from '../common/strategies/jwt-refresh.strategy';
 import { EmailService } from '../common/providers/email.service';
+import { EmailVerificationModule } from '../email-verification/email-verification.module';
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { EmailService } from '../common/providers/email.service';
       { name: RefreshToken.name, schema: RefreshTokenSchema },
     ]),
     forwardRef(() => UsersModule),
+    EmailVerificationModule,
   ],
   providers: [AuthService, JwtStrategy, JwtRefreshStrategy, EmailService],
   controllers: [AuthController],

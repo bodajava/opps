@@ -18,8 +18,12 @@ import { toast } from "sonner"
 const registerSchema = z.object({
   fullName: z.string().min(2, "Full name must be at least 2 characters"),
   email: z.string().email("Please enter a valid email address"),
-  phone: z.string().min(10, "Phone number must be at least 10 digits").optional().or(z.literal("")),
-  password: z.string().min(8, "Password must be at least 8 characters"),
+  phone: z.string().regex(/^01[0-9]{9}$/, "Please enter a valid Egyptian phone number starting with 01"),
+  password: z.string()
+    .min(8, "Password must be at least 8 characters")
+    .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
+    .regex(/[a-z]/, "Password must contain at least one lowercase letter")
+    .regex(/[0-9]/, "Password must contain at least one number"),
   confirmPassword: z.string(),
   marketingConsent: z.boolean().optional(),
 }).refine((data) => data.password === data.confirmPassword, {
@@ -28,6 +32,15 @@ const registerSchema = z.object({
 })
 
 type RegisterFormValues = z.infer<typeof registerSchema>
+
+function getSafeRegisterError(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message
+  if (error && typeof error === "object" && !Array.isArray(error)) {
+    const record = Object.fromEntries(Object.entries(error))
+    if (typeof record.message === "string" && record.message) return record.message
+  }
+  return "Registration failed. Please check your details and try again."
+}
 
 function RegisterFormContent() {
   const router = useRouter()
@@ -60,8 +73,7 @@ function RegisterFormContent() {
       toast.success("Account created successfully!")
       router.push("/")
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Registration failed"
-      setError(message)
+      setError(getSafeRegisterError(err))
     }
   }
 
@@ -92,7 +104,7 @@ function RegisterFormContent() {
         </div>
 
         <div>
-          <Label htmlFor="phone">Phone (optional)</Label>
+          <Label htmlFor="phone">Phone</Label>
           <Input id="phone" type="tel" placeholder="010xxxxxxx" {...register("phone")} />
           {errors.phone && <p className="mt-1 text-xs text-destructive">{errors.phone.message}</p>}
         </div>

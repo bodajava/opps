@@ -1,4 +1,9 @@
-import { BadRequestException, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ServiceUnavailableException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getModelToken } from '@nestjs/mongoose';
 import { JwtService } from '@nestjs/jwt';
@@ -9,6 +14,8 @@ import { User } from '../users/schemas/user.schema';
 import { Role } from '../roles/schemas/role.schema';
 import { RefreshToken } from '../refresh-tokens/schemas/refresh-token.schema';
 import { EmailService } from '../common/providers/email.service';
+import { EmailVerificationService } from '../email-verification/email-verification.service';
+import { EmailOtpPurpose } from '../email-verification/schemas/email-otp.schema';
 
 function queryResult(value: DynamicValue) {
   return {
@@ -23,8 +30,13 @@ describe('AuthService', () => {
     findOne: jest.fn(),
     findById: jest.fn(),
     findByIdAndUpdate: jest.fn(),
+    create: jest.fn(),
   };
-  const roleModel = { findById: jest.fn() };
+  const roleModel = {
+    findOne: jest.fn(),
+    findById: jest.fn(),
+    create: jest.fn(),
+  };
   const refreshTokenModel = {
     findOne: jest.fn(),
     findByIdAndUpdate: jest.fn(),
@@ -32,6 +44,9 @@ describe('AuthService', () => {
   };
   const emailService = {
     sendPasswordReset: jest.fn(),
+  };
+  const emailVerificationService = {
+    sendOTP: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -52,11 +67,96 @@ describe('AuthService', () => {
           },
         },
         { provide: EmailService, useValue: emailService },
+        {
+          provide: EmailVerificationService,
+          useValue: emailVerificationService,
+        },
       ],
     }).compile();
 
     service = module.get<AuthService>(AuthService);
     jest.clearAllMocks();
+  });
+
+  it('sends a verification OTP before creating a new registered user', async () => {
+    userModel.findOne.mockResolvedValue(null);
+    roleModel.findOne.mockResolvedValue({
+      _id: { toString: () => 'role-1' },
+      permissions: ['cart:read'],
+    });
+    emailVerificationService.sendOTP.mockResolvedValue({
+      message: 'OTP sent successfully',
+    });
+    const createdUser = {
+      _id: { toString: () => 'user-1' },
+      email: 'new@example.test',
+    };
+    userModel.create.mockResolvedValue(createdUser);
+    jest.spyOn(service, 'generateTokens').mockResolvedValue({
+      user: { id: 'user-1' },
+      accessToken: 'access',
+      refreshToken: 'refresh',
+    });
+
+    await expect(
+      service.register({
+        fullName: 'New User',
+        email: 'new@example.test',
+        phone: '01012345678',
+        password: 'Strong123',
+        marketingConsent: true,
+      }),
+    ).resolves.toMatchObject({ accessToken: 'access' });
+
+    expect(emailVerificationService.sendOTP).toHaveBeenCalledWith(
+      'new@example.test',
+      EmailOtpPurpose.EMAIL_VERIFICATION,
+    );
+    expect(userModel.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: 'new@example.test',
+        phone: '01012345678',
+        isActive: true,
+      }),
+    );
+  });
+
+  it('rejects duplicate registration emails before sending verification mail', async () => {
+    userModel.findOne.mockResolvedValue({ _id: 'existing-user' });
+
+    await expect(
+      service.register({
+        fullName: 'Existing User',
+        email: 'existing@example.test',
+        phone: '01012345678',
+        password: 'Strong123',
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    expect(emailVerificationService.sendOTP).not.toHaveBeenCalled();
+    expect(userModel.create).not.toHaveBeenCalled();
+  });
+
+  it('does not create a user when verification email delivery fails', async () => {
+    userModel.findOne.mockResolvedValue(null);
+    roleModel.findOne.mockResolvedValue({
+      _id: { toString: () => 'role-1' },
+      permissions: [],
+    });
+    emailVerificationService.sendOTP.mockRejectedValue(
+      new Error('transport unavailable'),
+    );
+
+    await expect(
+      service.register({
+        fullName: 'Mail Failure',
+        email: 'mail-failure@example.test',
+        phone: '01012345678',
+        password: 'Strong123',
+      }),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
+
+    expect(userModel.create).not.toHaveBeenCalled();
   });
 
   it('returns the same generic forgot-password response for a missing account', async () => {

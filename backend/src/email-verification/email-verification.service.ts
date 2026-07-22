@@ -86,7 +86,7 @@ export class EmailVerificationService {
 
     await this.emailService.sendOTP(normalizedEmail, otp);
 
-    this.logger.log(`OTP sent to ${normalizedEmail} for purpose: ${purpose}`);
+    this.logger.log(`OTP sent for purpose: ${purpose}`);
 
     return { message: 'OTP sent successfully' };
   }
@@ -129,7 +129,7 @@ export class EmailVerificationService {
     otpRecord.isUsed = true;
     await otpRecord.save();
 
-    this.logger.log(`OTP verified for ${normalizedEmail}, purpose: ${purpose}`);
+    this.logger.log(`OTP verified for purpose: ${purpose}`);
 
     if (purpose === EmailOtpPurpose.CHECKOUT_VERIFICATION) {
       const { raw, hash } = generateProofToken();

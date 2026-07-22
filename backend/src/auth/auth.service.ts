@@ -4,6 +4,7 @@ import {
   BadRequestException,
   ConflictException,
   Logger,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -18,6 +19,8 @@ import {
   RefreshTokenDocument,
 } from '../refresh-tokens/schemas/refresh-token.schema';
 import { EmailService } from '../common/providers/email.service';
+import { EmailVerificationService } from '../email-verification/email-verification.service';
+import { EmailOtpPurpose } from '../email-verification/schemas/email-otp.schema';
 import { JwtPayload } from '../common/interfaces/jwt-payload.interface';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -34,6 +37,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly emailService: EmailService,
+    private readonly emailVerificationService: EmailVerificationService,
   ) {}
 
   async register(dto: RegisterDto, userAgent?: string, ip?: string) {
@@ -56,6 +60,23 @@ export class AuthService {
         isSystem: true,
         permissions: [],
       });
+    }
+
+    try {
+      await this.emailVerificationService.sendOTP(
+        dto.email,
+        EmailOtpPurpose.EMAIL_VERIFICATION,
+      );
+    } catch (error) {
+      this.logger.warn(
+        'Registration blocked because verification email could not be sent',
+      );
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new ServiceUnavailableException(
+        'Verification email could not be sent. Please try again later.',
+      );
     }
 
     const user = await this.userModel.create({
