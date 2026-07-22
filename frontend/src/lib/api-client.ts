@@ -152,6 +152,20 @@ export function mapApiError<T>(error: T): {
   message: string;
   errors?: Record<string, string[]>;
 } {
+  if (error && typeof error === 'object' && !Array.isArray(error)) {
+    const data: DynamicRecord = Object.fromEntries(Object.entries(error));
+    if (data.success === false && typeof data.statusCode === 'number' && typeof data.message === 'string') {
+      const errors = data.errors && typeof data.errors === 'object' && !Array.isArray(data.errors)
+        ? Object.fromEntries(Object.entries(data.errors).filter((entry) => Array.isArray(entry[1]) && entry[1].every((item) => typeof item === 'string')))
+        : undefined;
+      return {
+        success: false,
+        statusCode: data.statusCode,
+        message: data.message,
+        errors,
+      };
+    }
+  }
   if (axios.isAxiosError(error)) {
     const responseData = error.response?.data;
     const data: DynamicRecord | undefined = responseData && typeof responseData === 'object' && !Array.isArray(responseData)

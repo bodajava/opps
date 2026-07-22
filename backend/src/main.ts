@@ -8,6 +8,7 @@ import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { Reflector } from '@nestjs/core';
+import { isAllowedCorsOrigin } from './config/cors-origin';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -28,7 +29,12 @@ async function bootstrap() {
   app.setGlobalPrefix(apiPrefix);
 
   app.enableCors({
-    origin: corsOrigins,
+    origin: (
+      origin: string | undefined,
+      callback: (error: Error | null, allow?: boolean) => void,
+    ) => {
+      callback(null, isAllowedCorsOrigin(origin, corsOrigins, nodeEnv));
+    },
     credentials: true,
   });
 

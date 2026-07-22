@@ -95,7 +95,7 @@ export class CategoriesService {
     return category;
   }
 
-  async create(dto: CreateCategoryDto) {
+  async create(dto: CreateCategoryDto): Promise<CategoryResponseDto> {
     const existingName = await this.categoryModel.findOne({ name: dto.name });
     if (existingName) {
       throw new ConflictException(
@@ -109,10 +109,14 @@ export class CategoriesService {
       slug = `${slug}-${Date.now()}`;
     }
 
-    return this.categoryModel.create({ ...dto, slug });
+    const created = await this.categoryModel.create({ ...dto, slug });
+    return this.toResponse(created);
   }
 
-  async update(id: string, dto: UpdateCategoryDto) {
+  async update(
+    id: string,
+    dto: UpdateCategoryDto,
+  ): Promise<CategoryResponseDto> {
     const category = await this.categoryModel.findById(id);
     if (!category) {
       throw new NotFoundException(`Category with id "${id}" not found`);
@@ -145,7 +149,11 @@ export class CategoriesService {
       .findByIdAndUpdate(id, { $set: updateData }, { returnDocument: 'after' })
       .exec();
 
-    return updated;
+    if (!updated) {
+      throw new NotFoundException(`Category with id "${id}" not found`);
+    }
+
+    return this.toResponse(updated);
   }
 
   async delete(id: string) {
