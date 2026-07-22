@@ -48,4 +48,20 @@ describe('ProductsController', () => {
       }),
     ).resolves.toEqual({ updated: 2, matched: 2 });
   });
+
+  it('keeps archived products out of the default admin list', async () => {
+    const findAll = jest.spyOn(service, 'findAll').mockResolvedValue({
+      items: [],
+      pagination: { page: 1, limit: 20, total: 0, totalPages: 0 },
+    });
+
+    await expect(
+      controller.adminFindAll({ page: 1, limit: 20 }),
+    ).resolves.toEqual({
+      items: [],
+      pagination: { page: 1, limit: 20, total: 0, totalPages: 0 },
+    });
+
+    expect(findAll).toHaveBeenCalledWith({ page: 1, limit: 20 });
+  });
 });

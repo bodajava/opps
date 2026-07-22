@@ -59,7 +59,7 @@ export class ProductsController {
   @Get('admin/products')
   @HttpCode(HttpStatus.OK)
   async adminFindAll(@Query() query: QueryProductDto) {
-    return this.productsService.findAll(query, true);
+    return this.productsService.findAll(query);
   }
 
   @UseGuards(AuthGuard('jwt'), RolesGuard)

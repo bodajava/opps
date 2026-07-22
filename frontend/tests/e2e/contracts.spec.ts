@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test"
 import {
   ApiContractError,
+  inventoryListEnvelopeSchema,
   ordersByStatusEnvelopeSchema,
   validateContract,
 } from "../../src/lib/api/admin-contracts"
@@ -36,6 +37,52 @@ test("orders-by-status rejects a malformed object instead of faking empty data",
       ordersByStatusEnvelopeSchema,
       { ...baseEnvelope, data: { items: { pending: 2 }, total: 2 } },
       "orders-by-status",
+    ),
+  ).toThrow(ApiContractError)
+})
+
+test("inventory accepts complete canonical boolean fields", () => {
+  const result = validateContract(
+    inventoryListEnvelopeSchema,
+    {
+      ...baseEnvelope,
+      data: {
+        items: [{
+          productId: "product-1",
+          productName: "Inventory Product",
+          sku: "INV-1",
+          currentStock: 7,
+          lowStockThreshold: 3,
+          inStock: true,
+          isActive: true,
+        }],
+        meta: { page: 1, limit: 20, total: 1, totalPages: 1 },
+      },
+    },
+    "GET /admin/inventory",
+  )
+  expect(result.data.items[0].isActive).toBe(true)
+})
+
+test("inventory rejects missing canonical boolean fields", () => {
+  expect(() =>
+    validateContract(
+      inventoryListEnvelopeSchema,
+      {
+        ...baseEnvelope,
+        data: {
+          items: [{
+            productId: "product-1",
+            productName: "Inventory Product",
+            sku: "INV-1",
+            currentStock: 7,
+            lowStockThreshold: 3,
+            inStock: true,
+          }],
+          meta: { page: 1, limit: 20, total: 1, totalPages: 1 },
+        },
+      },
+      "GET /admin/inventory",
     ),
   ).toThrow(ApiContractError)
 })

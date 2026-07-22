@@ -133,7 +133,9 @@ export class InventoryService {
     const [items, total] = await Promise.all([
       this.productModel
         .find(match)
-        .select('name sku stock lowStockThreshold status inStock images')
+        .select(
+          'name sku stock lowStockThreshold status inStock isActive images',
+        )
         .sort({
           [params.sort ?? 'name']: params.order === SortOrder.DESC ? -1 : 1,
         })
