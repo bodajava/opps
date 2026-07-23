@@ -7,6 +7,7 @@ import {
   ThrottlerStorage,
 } from '@nestjs/throttler';
 import { ServeStaticModule } from '@nestjs/serve-static';
+import { existsSync } from 'fs';
 import { join } from 'path';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 
@@ -84,10 +85,11 @@ import { RedisThrottlerStorage } from './redis/redis-throttler.storage';
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => {
         const nodeEnv = configService.get<string>('app.nodeEnv', 'development');
-        if (nodeEnv === 'production') {
+        const publicPath = join(__dirname, '..', 'public');
+        if (nodeEnv === 'production' && existsSync(publicPath)) {
           return [
             {
-              rootPath: join(__dirname, '..', 'public'),
+              rootPath: publicPath,
               serveRoot: '/',
               exclude: ['/api/(.*)'],
             },

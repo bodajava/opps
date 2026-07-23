@@ -24,7 +24,7 @@ interface DistributedThrottleRecord {
 
 @Injectable()
 export class RedisThrottlerStorage implements ThrottlerStorage {
-  private readonly developmentFallback = new Map<string, LocalEntry>();
+  private readonly localFallback = new Map<string, LocalEntry>();
 
   constructor(private readonly redis: RedisService) {}
 
@@ -36,19 +36,14 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
     throttlerName: string,
   ): Promise<DistributedThrottleRecord> {
     if (!this.redis.isEnabled()) {
-      if (process.env.NODE_ENV === 'production') {
-        throw new ServiceUnavailableException(
-          'Distributed rate limiting is unavailable',
-        );
-      }
       const namespacedKey = `${throttlerName}:${key}`;
       const now = Date.now();
-      const current = this.developmentFallback.get(namespacedKey);
+      const current = this.localFallback.get(namespacedKey);
       const entry =
         !current || current.expiresAt <= now
           ? { count: 1, expiresAt: now + ttl }
           : { count: current.count + 1, expiresAt: current.expiresAt };
-      this.developmentFallback.set(namespacedKey, entry);
+      this.localFallback.set(namespacedKey, entry);
       const remainingMs = Math.max(1, entry.expiresAt - now);
       return {
         totalHits: entry.count,

@@ -93,6 +93,11 @@ export interface EnvConfig {
 
 export const envConfig = registerAs('app', (): EnvConfig => {
   const nodeEnv = process.env.NODE_ENV || 'development';
+  const vercelHostname =
+    process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL || '';
+  const vercelUrl = vercelHostname
+    ? `https://${vercelHostname.replace(/^https?:\/\//, '')}`
+    : '';
   const toBool = (val: string | undefined, fallback = false): boolean => {
     if (val === undefined || val === '') return fallback;
     return val === 'true' || val === '1';
@@ -138,6 +143,9 @@ export const envConfig = registerAs('app', (): EnvConfig => {
     appName: toStr(process.env.APP_NAME, 'opps'),
     appUrl: (() => {
       const value = toStr(process.env.APP_URL, 'http://localhost:3000');
+      if (vercelUrl && /localhost|127\.0\.0\.1/.test(value)) {
+        return vercelUrl;
+      }
       if (nodeEnv === 'production' && /localhost|127\.0\.0\.1/.test(value)) {
         throw new Error(
           'APP_URL must be a public production URL in production',
@@ -145,7 +153,15 @@ export const envConfig = registerAs('app', (): EnvConfig => {
       }
       return value;
     })(),
-    backendUrl: toStr(process.env.BACKEND_URL, 'http://localhost:4001'),
+    backendUrl: (() => {
+      const value = toStr(
+        process.env.BACKEND_URL,
+        'http://localhost:4001',
+      );
+      return vercelUrl && /localhost|127\.0\.0\.1/.test(value)
+        ? vercelUrl
+        : value;
+    })(),
     mongodbUri: toStr(
       process.env.MONGODB_URI,
       'mongodb://localhost:27017/opps',
@@ -236,15 +252,6 @@ export const envConfig = registerAs('app', (): EnvConfig => {
           'REDIS_URL contains a placeholder and is not valid in production',
         );
       }
-      if (
-        nodeEnv === 'production' &&
-        toBool(process.env.REDIS_RATE_LIMIT_ENABLED, true) &&
-        !enabled
-      ) {
-        throw new Error(
-          'REDIS_ENABLED must be true when distributed production rate limiting is enabled',
-        );
-      }
       if (toBool(process.env.EMAIL_QUEUE_ENABLED, false) && !enabled) {
         throw new Error(
           'REDIS_ENABLED must be true when EMAIL_QUEUE_ENABLED is true',
@@ -265,7 +272,10 @@ export const envConfig = registerAs('app', (): EnvConfig => {
       30000,
     ),
     redisKeyPrefix: toStr(process.env.REDIS_KEY_PREFIX, 'opps'),
-    redisRateLimitEnabled: toBool(process.env.REDIS_RATE_LIMIT_ENABLED, true),
+    redisRateLimitEnabled: toBool(
+      process.env.REDIS_RATE_LIMIT_ENABLED,
+      toBool(process.env.REDIS_ENABLED, false),
+    ),
     emailQueueEnabled: toBool(process.env.EMAIL_QUEUE_ENABLED, false),
     emailQueueName: toStr(process.env.EMAIL_QUEUE_NAME, 'opps-email'),
     emailQueueConcurrency: boundedInt('EMAIL_QUEUE_CONCURRENCY', 5, 1, 100),
