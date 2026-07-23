@@ -11,10 +11,10 @@ build/
 !.env.example
 !**/.env.example
 *.log
-uploads/*
-!uploads/.gitkeep
-**/uploads/*
-!**/uploads/.gitkeep
+/uploads/*
+!/uploads/.gitkeep
+/backend/uploads/*
+!/backend/uploads/.gitkeep
 coverage/
 .turbo/
 *.tsbuildinfo
