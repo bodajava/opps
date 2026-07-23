@@ -6,9 +6,9 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
+import { randomUUID } from 'crypto';
 import * as path from 'path';
 import * as fs from 'fs/promises';
-import { v4 as uuidv4 } from 'uuid';
 import {
   UploadedAsset,
   UploadedAssetDocument,
@@ -56,7 +56,7 @@ export class UploadsService {
       // directory already exists
     }
 
-    const filename = `${uuidv4()}${path.extname(file.originalname)}`;
+    const filename = `${randomUUID()}${path.extname(file.originalname)}`;
     const filePath = path.join(uploadPath, filename);
 
     await fs.writeFile(filePath, file.buffer);
