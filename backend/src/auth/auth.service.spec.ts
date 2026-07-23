@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ConflictException,
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -92,12 +91,6 @@ describe('AuthService', () => {
       email: 'new@example.test',
     };
     userModel.create.mockResolvedValue(createdUser);
-    jest.spyOn(service, 'generateTokens').mockResolvedValue({
-      user: { id: 'user-1' },
-      accessToken: 'access',
-      refreshToken: 'refresh',
-    });
-
     await expect(
       service.register({
         fullName: 'New User',
@@ -106,11 +99,16 @@ describe('AuthService', () => {
         password: 'Strong123',
         marketingConsent: true,
       }),
-    ).resolves.toMatchObject({ accessToken: 'access' });
+    ).resolves.toMatchObject({
+      status: 'pending_verification',
+      verificationChannel: 'email',
+      maskedDestination: 'ne***@example.test',
+    });
 
     expect(emailVerificationService.sendOTP).toHaveBeenCalledWith(
       'new@example.test',
       EmailOtpPurpose.EMAIL_VERIFICATION,
+      expect.any(String),
     );
     expect(userModel.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -121,7 +119,7 @@ describe('AuthService', () => {
     );
   });
 
-  it('rejects duplicate registration emails before sending verification mail', async () => {
+  it('returns a non-enumerating pending response for an existing account', async () => {
     userModel.findOne.mockResolvedValue({ _id: 'existing-user' });
 
     await expect(
@@ -131,13 +129,16 @@ describe('AuthService', () => {
         phone: '01012345678',
         password: 'Strong123',
       }),
-    ).rejects.toBeInstanceOf(ConflictException);
+    ).resolves.toMatchObject({
+      status: 'pending_verification',
+      maskedDestination: 'ex******@example.test',
+    });
 
     expect(emailVerificationService.sendOTP).not.toHaveBeenCalled();
     expect(userModel.create).not.toHaveBeenCalled();
   });
 
-  it('does not create a user when verification email delivery fails', async () => {
+  it('keeps a pending user without issuing tokens when delivery fails', async () => {
     userModel.findOne.mockResolvedValue(null);
     roleModel.findOne.mockResolvedValue({
       _id: { toString: () => 'role-1' },
@@ -156,7 +157,9 @@ describe('AuthService', () => {
       }),
     ).rejects.toBeInstanceOf(ServiceUnavailableException);
 
-    expect(userModel.create).not.toHaveBeenCalled();
+    expect(userModel.create).toHaveBeenCalledWith(
+      expect.objectContaining({ accountStatus: 'pending_verification' }),
+    );
   });
 
   it('returns the same generic forgot-password response for a missing account', async () => {

@@ -9,9 +9,10 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { Reflector } from '@nestjs/core';
 import { isAllowedCorsOrigin } from './config/cors-origin';
+import { NestExpressApplication } from '@nestjs/platform-express';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
   const configService = app.get(ConfigService);
   const reflector = app.get(Reflector);
   const logger = new Logger('Bootstrap');
@@ -25,6 +26,12 @@ async function bootstrap() {
   const swaggerPath = configService.get<string>('app.swaggerPath', 'docs');
   const appName = configService.get<string>('app.appName', 'opps');
   const nodeEnv = configService.get<string>('app.nodeEnv', 'development');
+
+  app.enableShutdownHooks();
+  const trustProxy = process.env.TRUST_PROXY_HOPS;
+  if (trustProxy && /^\d+$/.test(trustProxy)) {
+    app.set('trust proxy', Number(trustProxy));
+  }
 
   app.setGlobalPrefix(apiPrefix);
 

@@ -1,6 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
+import {
+  orderEmail,
+  passwordResetEmail,
+  registrationOtpEmail,
+  welcomeEmail,
+} from '../email/email-template';
 
 @Injectable()
 export class EmailService {
@@ -45,6 +51,7 @@ export class EmailService {
     to: string;
     subject: string;
     html: string;
+    text: string;
   }): Promise<void> {
     const fromName = this.configService.get<string>(
       'app.emailFromName',
@@ -56,11 +63,7 @@ export class EmailService {
     );
 
     if (this.devMode) {
-      this.logger.log('--- DEV EMAIL (console) ---');
-      this.logger.log(`To: ${options.to}`);
-      this.logger.log(`Subject: ${options.subject}`);
-      this.logger.log(`Body: ${options.html}`);
-      this.logger.log('--- END DEV EMAIL ---');
+      this.logger.log('Development email rendered without delivery');
       return;
     }
 
@@ -75,6 +78,7 @@ export class EmailService {
         to: options.to,
         subject: options.subject,
         html: options.html,
+        text: options.text,
       });
     } catch (error) {
       this.logger.error(
@@ -86,10 +90,19 @@ export class EmailService {
   }
 
   async sendOTP(email: string, otp: string): Promise<void> {
+    const template = registrationOtpEmail({
+      otp,
+      expiresMinutes: this.configService.get<number>(
+        'app.emailOtpExpiresMinutes',
+        10,
+      ),
+      appUrl: this.configService.get<string>('app.appUrl', ''),
+      supportEmail:
+        this.configService.get<string>('app.supportEmail') || undefined,
+    });
     await this.sendMail({
       to: email,
-      subject: 'Your OTP Code',
-      html: `<p>Your OTP code is: <strong>${otp}</strong></p><p>This code expires in ${this.configService.get<number>('app.emailOtpExpiresMinutes', 10)} minutes.</p>`,
+      ...template,
     });
   }
 
@@ -101,10 +114,16 @@ export class EmailService {
       total: number;
     },
   ): Promise<void> {
+    const template = orderEmail({
+      orderNumber: order.orderNumber,
+      total: order.total,
+      appUrl: this.configService.get<string>('app.appUrl', ''),
+      supportEmail:
+        this.configService.get<string>('app.supportEmail') || undefined,
+    });
     await this.sendMail({
       to: email,
-      subject: `Order Confirmation - ${order.orderNumber}`,
-      html: `<h1>Order Confirmed</h1><p>Your order <strong>${order.orderNumber}</strong> has been confirmed.</p><p>Total: ${order.total}</p>`,
+      ...template,
     });
   }
 
@@ -113,10 +132,17 @@ export class EmailService {
     order: { orderNumber: string },
     status: string,
   ): Promise<void> {
+    const template = orderEmail({
+      orderNumber: order.orderNumber,
+      total: 0,
+      status,
+      appUrl: this.configService.get<string>('app.appUrl', ''),
+      supportEmail:
+        this.configService.get<string>('app.supportEmail') || undefined,
+    });
     await this.sendMail({
       to: email,
-      subject: `Order Status Update - ${order.orderNumber}`,
-      html: `<h1>Order Status Updated</h1><p>Your order <strong>${order.orderNumber}</strong> is now: <strong>${status}</strong></p>`,
+      ...template,
     });
   }
 
@@ -126,11 +152,26 @@ export class EmailService {
       'http://localhost:3000',
     );
     const resetUrl = `${appUrl}/reset-password?token=${token}`;
+    const template = passwordResetEmail({
+      resetUrl,
+      appUrl,
+      supportEmail:
+        this.configService.get<string>('app.supportEmail') || undefined,
+    });
     await this.sendMail({
       to: email,
-      subject: 'Password Reset Request',
-      html: `<p>Click <a href="${resetUrl}">here</a> to reset your password. This link expires in 1 hour.</p>`,
+      ...template,
     });
+  }
+
+  async sendWelcome(email: string, name?: string): Promise<void> {
+    const template = welcomeEmail({
+      name,
+      appUrl: this.configService.get<string>('app.appUrl', ''),
+      supportEmail:
+        this.configService.get<string>('app.supportEmail') || undefined,
+    });
+    await this.sendMail({ to: email, ...template });
   }
 
   async sendMailExternal(options: {
@@ -138,6 +179,9 @@ export class EmailService {
     subject: string;
     html: string;
   }): Promise<void> {
-    await this.sendMail(options);
+    await this.sendMail({
+      ...options,
+      text: options.html.replace(/<[^>]+>/g, ' '),
+    });
   }
 }

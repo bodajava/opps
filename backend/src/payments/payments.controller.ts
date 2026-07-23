@@ -20,6 +20,7 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import type { Request } from 'express';
 import type { JwtPayload } from '../common/interfaces/jwt-payload.interface';
+import { SkipThrottle, Throttle } from '@nestjs/throttler';
 
 @Controller()
 export class PaymentsController {
@@ -29,6 +30,7 @@ export class PaymentsController {
   ) {}
 
   @UseGuards(AuthGuard('jwt'))
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Post('payments/create-session')
   @HttpCode(HttpStatus.CREATED)
   async createSession(
@@ -66,6 +68,7 @@ export class PaymentsController {
   }
 
   @Public()
+  @SkipThrottle()
   @Post('payments/webhooks/:provider')
   @HttpCode(HttpStatus.OK)
   async webhook(

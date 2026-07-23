@@ -23,78 +23,61 @@ export class CampaignQueueProcessor extends WorkerHost {
   }
 
   async process(job: Job<CampaignJobData>): Promise<void> {
-    const { campaignId, recipients, subject, content } = job.data;
+    const { campaignId, recipient, subject, content } = job.data;
 
     this.logger.log(
-      `Processing campaign ${campaignId} for ${recipients.length} recipients`,
+      `Processing campaign recipient job for campaign ${campaignId}`,
     );
 
     await this.campaignModel
       .findByIdAndUpdate(campaignId, { $set: { status: 'processing' } })
       .exec();
 
-    let sent = 0;
-    let failed = 0;
-
-    for (const email of recipients) {
-      try {
-        const campaign = await this.campaignModel.findById(campaignId).exec();
-        if (campaign?.sentEmails?.includes(email)) {
-          this.logger.log(`Already sent to ${email}, skipping`);
-          continue;
-        }
-
-        await this.emailService.sendMailExternal({
-          to: email,
-          subject,
-          html: content,
-        });
-
-        sent++;
-
-        await this.campaignModel
-          .findByIdAndUpdate(campaignId, {
-            $inc: { sentCount: 1 },
-            $push: { sentEmails: email },
-          })
-          .exec();
-      } catch {
-        failed++;
-        this.logger.warn(`Failed to send campaign email to ${email}`);
-
-        await this.campaignModel
-          .findByIdAndUpdate(campaignId, {
-            $inc: { failedCount: 1 },
-          })
-          .exec();
+    try {
+      const campaign = await this.campaignModel.findById(campaignId).exec();
+      if (campaign?.sentEmails?.includes(recipient)) {
+        return;
       }
+
+      await this.emailService.sendMailExternal({
+        to: recipient,
+        subject,
+        html: content,
+      });
+
+      await this.campaignModel
+        .findByIdAndUpdate(campaignId, {
+          $inc: { sentCount: 1 },
+          $push: { sentEmails: recipient },
+        })
+        .exec();
+    } catch (error) {
+      this.logger.warn(
+        `Campaign recipient job failed for campaign ${campaignId}`,
+      );
+
+      await this.campaignModel
+        .findByIdAndUpdate(campaignId, {
+          $inc: { failedCount: 1 },
+        })
+        .exec();
+      throw error;
     }
 
-    this.logger.log(
-      `Campaign ${campaignId} completed: ${sent} sent, ${failed} failed`,
-    );
-
-    let finalStatus: string;
-    if (sent > 0 && failed === 0) {
-      finalStatus = 'sent';
-    } else if (sent > 0 && failed > 0) {
-      finalStatus = 'partially_failed';
-    } else if (sent === 0 && failed > 0) {
-      finalStatus = 'failed';
-    } else {
-      finalStatus = 'sent';
+    const updated = await this.campaignModel.findById(campaignId).exec();
+    if (
+      updated &&
+      updated.sentCount + updated.failedCount >= updated.targetCount
+    ) {
+      const status =
+        updated.failedCount === 0
+          ? 'sent'
+          : updated.sentCount > 0
+            ? 'partially_failed'
+            : 'failed';
+      await this.campaignModel
+        .findByIdAndUpdate(campaignId, { $set: { status, sentAt: new Date() } })
+        .exec();
     }
-
-    const update: DynamicRecord = {
-      status: finalStatus,
-    };
-
-    if (finalStatus === 'sent' || finalStatus === 'partially_failed') {
-      update.sentAt = new Date();
-    }
-
-    await this.campaignModel
-      .findByIdAndUpdate(campaignId, { $set: update })
-      .exec();
   }
 }

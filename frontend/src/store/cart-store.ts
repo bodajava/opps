@@ -1,122 +1,80 @@
-import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
-import type { CartItem } from '@/lib/types';
+import { create } from "zustand"
+import type { Cart, CartItem } from "@/lib/types"
+import { addToCart, applyCoupon as applyCouponApi, getCart, removeCartItem, removeCoupon as removeCouponApi, updateCartItem } from "@/lib/api/cart"
 
 interface CartState {
-  items: CartItem[];
-  couponCode: string | null;
-  discount: number;
-  deliveryFee: number;
-  subtotal: number;
-  total: number;
-  addItem: (item: CartItem) => void;
-  removeItem: (itemId: string) => void;
-  updateQuantity: (itemId: string, quantity: number) => void;
-  applyCoupon: (code: string, discount: number) => void;
-  removeCoupon: () => void;
-  clearCart: () => void;
-  setCart: (cart: {
-    items: CartItem[];
-    couponCode?: string | null;
-    discount?: number;
-    deliveryFee?: number;
-    subtotal?: number;
-    total?: number;
-  }) => void;
+  items: CartItem[]
+  couponCode: string | null
+  discount: number
+  deliveryFee: number
+  subtotal: number
+  total: number
+  isLoading: boolean
+  loadCart: () => Promise<void>
+  addProduct: (productId: string, variantId: string | undefined, quantity: number) => Promise<void>
+  removeItem: (itemId: string) => Promise<void>
+  updateQuantity: (itemId: string, quantity: number) => Promise<void>
+  applyCoupon: (code: string) => Promise<void>
+  removeCoupon: () => Promise<void>
+  clearLocalCart: () => void
+  clearCart: () => void
+  setCart: (cart: Cart) => void
 }
 
-function recalculate(
-  items: CartItem[],
-  discount: number,
-  deliveryFee: number,
-) {
-  const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const total = Math.max(0, subtotal - discount + deliveryFee);
-  return { subtotal, total };
+function cartState(cart: Cart): Pick<CartState, "items" | "couponCode" | "discount" | "deliveryFee" | "subtotal" | "total"> {
+  return {
+    items: cart.items,
+    couponCode: cart.couponCode ?? null,
+    discount: cart.discount ?? 0,
+    deliveryFee: cart.deliveryFee ?? 0,
+    subtotal: cart.subtotal ?? 0,
+    total: cart.total ?? 0,
+  }
 }
 
-export const useCartStore = create<CartState>()(
-  persist(
-    (set) => ({
-      items: [],
-      couponCode: null,
-      discount: 0,
-      deliveryFee: 0,
-      subtotal: 0,
-      total: 0,
+const emptyCart = {
+  items: [],
+  couponCode: null,
+  discount: 0,
+  deliveryFee: 0,
+  subtotal: 0,
+  total: 0,
+}
 
-      addItem: (item) =>
-        set((state) => {
-          const existing = state.items.find(
-            (i) => i.productId === item.productId && i.variantId === item.variantId,
-          );
-          let newItems: CartItem[];
-          if (existing) {
-            newItems = state.items.map((i) =>
-              i.productId === item.productId && i.variantId === item.variantId
-                ? { ...i, quantity: i.quantity + item.quantity }
-                : i,
-            );
-          } else {
-            newItems = [...state.items, item];
-          }
-          const { subtotal, total } = recalculate(newItems, state.discount, state.deliveryFee);
-          return { items: newItems, subtotal, total };
-        }),
-
-      removeItem: (itemId) =>
-        set((state) => {
-          const newItems = state.items.filter((i) => i.id !== itemId);
-          const { subtotal, total } = recalculate(newItems, state.discount, state.deliveryFee);
-          return { items: newItems, subtotal, total };
-        }),
-
-      updateQuantity: (itemId, quantity) =>
-        set((state) => {
-          if (quantity < 1) {
-            const newItems = state.items.filter((i) => i.id !== itemId);
-            const { subtotal, total } = recalculate(newItems, state.discount, state.deliveryFee);
-            return { items: newItems, subtotal, total };
-          }
-          const newItems = state.items.map((i) =>
-            i.id === itemId ? { ...i, quantity } : i,
-          );
-          const { subtotal, total } = recalculate(newItems, state.discount, state.deliveryFee);
-          return { items: newItems, subtotal, total };
-        }),
-
-      applyCoupon: (code, discount) =>
-        set((state) => {
-          const { subtotal, total } = recalculate(state.items, discount, state.deliveryFee);
-          return { couponCode: code, discount, subtotal, total };
-        }),
-
-      removeCoupon: () =>
-        set((state) => {
-          const { subtotal, total } = recalculate(state.items, 0, state.deliveryFee);
-          return { couponCode: null, discount: 0, subtotal, total };
-        }),
-
-      clearCart: () =>
-        set({
-          items: [],
-          couponCode: null,
-          discount: 0,
-          deliveryFee: 0,
-          subtotal: 0,
-          total: 0,
-        }),
-
-      setCart: (cart) =>
-        set({
-          items: cart.items,
-          couponCode: cart.couponCode ?? null,
-          discount: cart.discount ?? 0,
-          deliveryFee: cart.deliveryFee ?? 0,
-          subtotal: cart.subtotal ?? 0,
-          total: cart.total ?? 0,
-        }),
-    }),
-    { name: 'opps-cart' },
-  ),
-);
+export const useCartStore = create<CartState>((set) => ({
+  ...emptyCart,
+  isLoading: false,
+  setCart: (cart) => set(cartState(cart)),
+  clearLocalCart: () => set({ ...emptyCart, isLoading: false }),
+  clearCart: () => set({ ...emptyCart, isLoading: false }),
+  loadCart: async () => {
+    set({ isLoading: true })
+    try {
+      const response = await getCart()
+      set({ ...cartState(response.data), isLoading: false })
+    } catch (error) {
+      set({ isLoading: false })
+      throw error
+    }
+  },
+  addProduct: async (productId, variantId, quantity) => {
+    const response = await addToCart({ productId, variantId, quantity })
+    set(cartState(response.data))
+  },
+  removeItem: async (itemId) => {
+    const response = await removeCartItem(itemId)
+    set(cartState(response.data))
+  },
+  updateQuantity: async (itemId, quantity) => {
+    const response = await updateCartItem({ itemId, quantity })
+    set(cartState(response.data))
+  },
+  applyCoupon: async (code) => {
+    const response = await applyCouponApi(code)
+    set(cartState(response.data))
+  },
+  removeCoupon: async () => {
+    const response = await removeCouponApi()
+    set(cartState(response.data))
+  },
+}))

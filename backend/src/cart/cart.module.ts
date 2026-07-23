@@ -9,6 +9,8 @@ import {
   ProductVariantSchema,
 } from '../product-variants/schemas/product-variant.schema';
 import { CouponsModule } from '../coupons/coupons.module';
+import { User, UserSchema } from '../users/schemas/user.schema';
+import { VerifiedAccountGuard } from '../common/guards/verified-account.guard';
 
 @Module({
   imports: [
@@ -16,10 +18,11 @@ import { CouponsModule } from '../coupons/coupons.module';
       { name: Cart.name, schema: CartSchema },
       { name: Product.name, schema: ProductSchema },
       { name: ProductVariant.name, schema: ProductVariantSchema },
+      { name: User.name, schema: UserSchema },
     ]),
     CouponsModule,
   ],
-  providers: [CartService],
+  providers: [CartService, VerifiedAccountGuard],
   controllers: [CartController],
   exports: [CartService, MongooseModule],
 })

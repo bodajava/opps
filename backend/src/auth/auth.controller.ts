@@ -20,12 +20,18 @@ import { ChangePasswordDto } from './dto/change-password.dto';
 import { Public } from '../common/decorators/public.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { JwtPayload } from '../common/interfaces/jwt-payload.interface';
+import { Throttle } from '@nestjs/throttler';
+import {
+  ResendRegistrationOtpDto,
+  VerifyRegistrationOtpDto,
+} from './dto/registration-verification.dto';
 
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Public()
+  @Throttle({ default: { limit: 5, ttl: 900000 } })
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
   async register(@Body() dto: RegisterDto, @Req() req: Request) {
@@ -33,6 +39,31 @@ export class AuthController {
   }
 
   @Public()
+  @Throttle({ default: { limit: 5, ttl: 900000 } })
+  @Post('registration/verify')
+  @HttpCode(HttpStatus.OK)
+  async verifyRegistration(
+    @Body() dto: VerifyRegistrationOtpDto,
+    @Req() req: Request,
+  ) {
+    return this.authService.verifyRegistration(
+      dto.verificationFlowId,
+      dto.otp,
+      req.headers['user-agent'],
+      req.ip,
+    );
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 3, ttl: 900000 } })
+  @Post('registration/resend')
+  @HttpCode(HttpStatus.OK)
+  async resendRegistration(@Body() dto: ResendRegistrationOtpDto) {
+    return this.authService.resendRegistration(dto.verificationFlowId);
+  }
+
+  @Public()
+  @Throttle({ default: { limit: 10, ttl: 900000 } })
   @Post('login')
   @HttpCode(HttpStatus.OK)
   async login(@Body() dto: LoginDto, @Req() req: Request) {
@@ -59,13 +90,15 @@ export class AuthController {
   }
 
   @Public()
+  @Throttle({ default: { limit: 3, ttl: 900000 } })
   @Post('forgot-password')
   @HttpCode(HttpStatus.OK)
-  async forgotPassword(@Body() dto: ForgotPasswordDto) {
-    return this.authService.forgotPassword(dto.email);
+  async forgotPassword(@Body() dto: ForgotPasswordDto, @Req() req: Request) {
+    return this.authService.forgotPassword(dto.email, req.ip);
   }
 
   @Public()
+  @Throttle({ default: { limit: 5, ttl: 900000 } })
   @Post('reset-password')
   @HttpCode(HttpStatus.OK)
   async resetPassword(@Body() dto: ResetPasswordDto) {

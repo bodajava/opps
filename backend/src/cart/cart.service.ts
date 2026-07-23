@@ -30,14 +30,15 @@ export class CartService {
   ) {}
 
   async getCart(sessionId: string, userId?: string): Promise<CartDocument> {
+    if (!userId)
+      throw new BadRequestException('Authenticated user is required');
     let cart = await this.cartModel.findOne({
-      $or: [{ sessionId }, ...(userId ? [{ user: userId }] : [])],
+      user: userId,
     });
 
     if (!cart) {
       cart = await this.cartModel.create({
-        sessionId,
-        ...(userId ? { user: userId } : {}),
+        user: userId,
         items: [],
         subtotal: 0,
         discount: 0,
@@ -255,40 +256,9 @@ export class CartService {
   }
 
   async mergeCart(sessionId: string, userId: string): Promise<CartDocument> {
-    const guestCart = await this.cartModel.findOne({
-      sessionId,
-      user: { $exists: false },
-    });
     const userCart = await this.cartModel.findOne({ user: userId });
-
-    if (!guestCart || guestCart.items.length === 0) {
-      if (userCart) return userCart;
-      return this.getCart(sessionId, userId);
-    }
-
-    if (!userCart) {
-      guestCart.user = userId?.toString();
-      return guestCart.save();
-    }
-
-    for (const guestItem of guestCart.items) {
-      const existing = userCart.items.find(
-        (ui) =>
-          ui.product.toString() === guestItem.product.toString() &&
-          (!guestItem.variant ||
-            ui.variant?.toString() === guestItem.variant?.toString()),
-      );
-
-      if (existing) {
-        existing.quantity = Math.max(existing.quantity, guestItem.quantity);
-      } else {
-        userCart.items.push(guestItem);
-      }
-    }
-
-    await this.recalculateCart(userCart);
-    await guestCart.deleteOne();
-    return userCart.save();
+    if (userCart) return userCart;
+    return this.getCart(sessionId, userId);
   }
 
   private async recalculateCart(cart: CartDocument): Promise<void> {

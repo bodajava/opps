@@ -1,5 +1,6 @@
 import { getCategoryBySlug } from "@/lib/api/categories";
 import { getProducts } from "@/lib/api/products";
+import { isApiNotFoundError, isRecoverableApiError } from "@/lib/api-client";
 import { ProductGrid } from "@/components/product-grid";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import type { Category, Product } from "@/lib/types";
@@ -14,7 +15,9 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
         description: res.data.description || `Browse our ${res.data.name} collection.`,
       };
     }
-  } catch {}
+  } catch (error) {
+    if (!isRecoverableApiError(error) && !isApiNotFoundError(error)) throw error;
+  }
   return { title: "Category - opps" };
 }
 
@@ -24,11 +27,18 @@ export default async function CategoryPage({ params }: { params: Promise<{ slug:
   let category: Category | null = null;
   let products: Product[] = [];
   let total = 0;
+  let isApiUnavailable = false;
 
   try {
     const catRes = await getCategoryBySlug(slug);
     if (catRes.success) category = catRes.data;
-  } catch {}
+  } catch (error) {
+    if (isRecoverableApiError(error)) {
+      isApiUnavailable = true;
+    } else if (!isApiNotFoundError(error)) {
+      throw error;
+    }
+  }
 
   if (category) {
     try {
@@ -37,7 +47,19 @@ export default async function CategoryPage({ params }: { params: Promise<{ slug:
         products = prodRes.data;
         total = prodRes.meta.total;
       }
-    } catch {}
+    } catch (error) {
+      if (!isRecoverableApiError(error)) throw error;
+      isApiUnavailable = true;
+    }
+  }
+
+  if (isApiUnavailable) {
+    return (
+      <div className="mx-auto max-w-3xl px-4 py-20 text-center" role="alert">
+        <h1 className="text-2xl font-bold">Category temporarily unavailable</h1>
+        <p className="mt-2 text-muted-foreground">Please try again shortly.</p>
+      </div>
+    );
   }
 
   if (!category) {

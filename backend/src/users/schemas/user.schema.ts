@@ -3,6 +3,13 @@ import { Document, Schema as MongooseSchema } from 'mongoose';
 
 export type UserDocument = User & Document;
 
+export enum AccountStatus {
+  PendingVerification = 'pending_verification',
+  Verified = 'verified',
+  Blocked = 'blocked',
+  Disabled = 'disabled',
+}
+
 @Schema({ timestamps: true, collection: 'users' })
 export class User {
   @Prop({ required: true, unique: true, index: true })
@@ -28,6 +35,12 @@ export class User {
 
   @Prop({ default: true })
   isActive: boolean;
+
+  @Prop({ enum: AccountStatus, default: AccountStatus.Verified, index: true })
+  accountStatus: AccountStatus;
+
+  @Prop({ type: Date, nullable: true })
+  emailVerifiedAt?: Date;
 
   @Prop({ default: false })
   isBlocked: boolean;

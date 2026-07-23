@@ -1,4 +1,5 @@
 import { getProductBySlug, getProducts } from "@/lib/api/products";
+import { isApiNotFoundError, isRecoverableApiError } from "@/lib/api-client";
 import type { Product } from "@/lib/types";
 import { ProductDetailsClient } from "./product-details-client";
 
@@ -18,7 +19,9 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
         },
       };
     }
-  } catch {}
+  } catch (error) {
+    if (!isRecoverableApiError(error) && !isApiNotFoundError(error)) throw error;
+  }
   return { title: "Product - opps" };
 }
 
@@ -27,11 +30,18 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
 
   let product: Product | null = null;
   let relatedProducts: Product[] = [];
+  let isApiUnavailable = false;
 
   try {
     const res = await getProductBySlug(slug);
     if (res.success) product = res.data;
-  } catch {}
+  } catch (error) {
+    if (isRecoverableApiError(error)) {
+      isApiUnavailable = true;
+    } else if (!isApiNotFoundError(error)) {
+      throw error;
+    }
+  }
 
   if (product) {
     try {
@@ -42,7 +52,19 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
       if (relRes.success) {
         relatedProducts = relRes.data.filter((p) => p.id !== product!.id).slice(0, 4);
       }
-    } catch {}
+    } catch (error) {
+      if (!isRecoverableApiError(error)) throw error;
+      isApiUnavailable = true;
+    }
+  }
+
+  if (isApiUnavailable) {
+    return (
+      <div className="mx-auto max-w-3xl px-4 py-20 text-center" role="alert">
+        <h1 className="text-2xl font-bold">Product temporarily unavailable</h1>
+        <p className="mt-2 text-muted-foreground">Please try again shortly.</p>
+      </div>
+    );
   }
 
   if (!product) {

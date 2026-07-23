@@ -26,6 +26,7 @@ export interface EnvConfig {
   emailFromName: string;
   emailFromAddress: string;
   emailProvider: string;
+  supportEmail: string;
   emailOtpExpiresMinutes: number;
   emailOtpResendSeconds: number;
   emailOtpMaxAttempts: number;
@@ -66,16 +67,32 @@ export interface EnvConfig {
   maxUploadSizeMb: number;
   rateLimitTtlSeconds: number;
   rateLimitMaxRequests: number;
-  redisHost: string;
-  redisPort: number;
-  redisPassword: string;
-  campaignQueueEnabled: boolean;
+  redisEnabled: boolean;
+  redisUrl: string;
+  redisConnectTimeoutMs: number;
+  redisCommandTimeoutMs: number;
+  redisKeyPrefix: string;
+  redisRateLimitEnabled: boolean;
+  emailQueueEnabled: boolean;
+  emailQueueName: string;
+  emailQueueConcurrency: number;
+  emailQueueMaxAttempts: number;
+  emailQueueBackoffMs: number;
+  emailQueueEncryptionKey: string;
+  emailDeduplicationTtlSeconds: number;
+  otpLockSeconds: number;
+  loginMaxAttempts: number;
+  loginAttemptWindowSeconds: number;
+  loginLockSeconds: number;
+  forgotPasswordMaxRequests: number;
+  forgotPasswordWindowSeconds: number;
   swaggerEnabled: boolean;
   swaggerPath: string;
   logLevel: string;
 }
 
 export const envConfig = registerAs('app', (): EnvConfig => {
+  const nodeEnv = process.env.NODE_ENV || 'development';
   const toBool = (val: string | undefined, fallback = false): boolean => {
     if (val === undefined || val === '') return fallback;
     return val === 'true' || val === '1';
@@ -85,6 +102,21 @@ export const envConfig = registerAs('app', (): EnvConfig => {
     if (val === undefined || val === '') return fallback;
     const parsed = parseInt(val, 10);
     return isNaN(parsed) ? fallback : parsed;
+  };
+
+  const boundedInt = (
+    name: string,
+    fallback: number,
+    minimum: number,
+    maximum: number,
+  ): number => {
+    const value = toInt(process.env[name], fallback);
+    if (!Number.isInteger(value) || value < minimum || value > maximum) {
+      throw new Error(
+        `${name} must be an integer between ${minimum} and ${maximum}`,
+      );
+    }
+    return value;
   };
 
   const toStr = (val: string | undefined, fallback: string): string => {
@@ -100,11 +132,19 @@ export const envConfig = registerAs('app', (): EnvConfig => {
   };
 
   return {
-    nodeEnv: toStr(process.env.NODE_ENV, 'development'),
+    nodeEnv,
     port: toInt(process.env.PORT, 4001),
     apiPrefix: toStr(process.env.API_PREFIX, 'api'),
     appName: toStr(process.env.APP_NAME, 'opps'),
-    appUrl: toStr(process.env.APP_URL, 'http://localhost:3000'),
+    appUrl: (() => {
+      const value = toStr(process.env.APP_URL, 'http://localhost:3000');
+      if (nodeEnv === 'production' && /localhost|127\.0\.0\.1/.test(value)) {
+        throw new Error(
+          'APP_URL must be a public production URL in production',
+        );
+      }
+      return value;
+    })(),
     backendUrl: toStr(process.env.BACKEND_URL, 'http://localhost:4001'),
     mongodbUri: toStr(
       process.env.MONGODB_URI,
@@ -128,6 +168,7 @@ export const envConfig = registerAs('app', (): EnvConfig => {
     emailFromName: toStr(process.env.EMAIL_FROM_NAME, 'opps'),
     emailFromAddress: toStr(process.env.EMAIL_FROM_ADDRESS, 'noreply@opps.com'),
     emailProvider: toStr(process.env.EMAIL_PROVIDER, 'smtp'),
+    supportEmail: toStr(process.env.SUPPORT_EMAIL, ''),
     emailOtpExpiresMinutes: toInt(process.env.EMAIL_OTP_EXPIRES_MINUTES, 10),
     emailOtpResendSeconds: toInt(process.env.EMAIL_OTP_RESEND_SECONDS, 60),
     emailOtpMaxAttempts: toInt(process.env.EMAIL_OTP_MAX_ATTEMPTS, 5),
@@ -177,10 +218,103 @@ export const envConfig = registerAs('app', (): EnvConfig => {
     maxUploadSizeMb: toInt(process.env.MAX_UPLOAD_SIZE_MB, 5),
     rateLimitTtlSeconds: toInt(process.env.RATE_LIMIT_TTL_SECONDS, 60),
     rateLimitMaxRequests: toInt(process.env.RATE_LIMIT_MAX_REQUESTS, 100),
-    redisHost: toStr(process.env.REDIS_HOST, 'localhost'),
-    redisPort: toInt(process.env.REDIS_PORT, 6379),
-    redisPassword: toStr(process.env.REDIS_PASSWORD, ''),
-    campaignQueueEnabled: toBool(process.env.CAMPAIGN_QUEUE_ENABLED, false),
+    redisEnabled: toBool(process.env.REDIS_ENABLED, false),
+    redisUrl: (() => {
+      const enabled = toBool(process.env.REDIS_ENABLED, false);
+      const url = toStr(process.env.REDIS_URL, '');
+      if (enabled && !/^rediss?:\/\//.test(url)) {
+        throw new Error(
+          'REDIS_URL must be configured with a redis:// or rediss:// URL when Redis is enabled',
+        );
+      }
+      if (
+        enabled &&
+        nodeEnv === 'production' &&
+        /replace|placeholder|your-redis-host/i.test(url)
+      ) {
+        throw new Error(
+          'REDIS_URL contains a placeholder and is not valid in production',
+        );
+      }
+      if (
+        nodeEnv === 'production' &&
+        toBool(process.env.REDIS_RATE_LIMIT_ENABLED, true) &&
+        !enabled
+      ) {
+        throw new Error(
+          'REDIS_ENABLED must be true when distributed production rate limiting is enabled',
+        );
+      }
+      if (toBool(process.env.EMAIL_QUEUE_ENABLED, false) && !enabled) {
+        throw new Error(
+          'REDIS_ENABLED must be true when EMAIL_QUEUE_ENABLED is true',
+        );
+      }
+      return url;
+    })(),
+    redisConnectTimeoutMs: boundedInt(
+      'REDIS_CONNECT_TIMEOUT_MS',
+      10000,
+      1000,
+      60000,
+    ),
+    redisCommandTimeoutMs: boundedInt(
+      'REDIS_COMMAND_TIMEOUT_MS',
+      5000,
+      100,
+      30000,
+    ),
+    redisKeyPrefix: toStr(process.env.REDIS_KEY_PREFIX, 'opps'),
+    redisRateLimitEnabled: toBool(process.env.REDIS_RATE_LIMIT_ENABLED, true),
+    emailQueueEnabled: toBool(process.env.EMAIL_QUEUE_ENABLED, false),
+    emailQueueName: toStr(process.env.EMAIL_QUEUE_NAME, 'opps-email'),
+    emailQueueConcurrency: boundedInt('EMAIL_QUEUE_CONCURRENCY', 5, 1, 100),
+    emailQueueMaxAttempts: boundedInt('EMAIL_QUEUE_MAX_ATTEMPTS', 5, 1, 20),
+    emailQueueBackoffMs: boundedInt(
+      'EMAIL_QUEUE_BACKOFF_MS',
+      5000,
+      100,
+      300000,
+    ),
+    emailQueueEncryptionKey: (() => {
+      const value = toStr(process.env.EMAIL_QUEUE_ENCRYPTION_KEY, '');
+      if (
+        toBool(process.env.EMAIL_QUEUE_ENABLED, false) &&
+        Buffer.from(value, 'base64').length !== 32
+      ) {
+        throw new Error(
+          'EMAIL_QUEUE_ENCRYPTION_KEY must be a base64-encoded 32-byte key when the email queue is enabled',
+        );
+      }
+      return value;
+    })(),
+    emailDeduplicationTtlSeconds: boundedInt(
+      'EMAIL_DEDUPLICATION_TTL_SECONDS',
+      300,
+      10,
+      86400,
+    ),
+    otpLockSeconds: boundedInt('OTP_LOCK_SECONDS', 900, 60, 86400),
+    loginMaxAttempts: boundedInt('LOGIN_MAX_ATTEMPTS', 5, 1, 100),
+    loginAttemptWindowSeconds: boundedInt(
+      'LOGIN_ATTEMPT_WINDOW_SECONDS',
+      900,
+      60,
+      86400,
+    ),
+    loginLockSeconds: boundedInt('LOGIN_LOCK_SECONDS', 900, 60, 86400),
+    forgotPasswordMaxRequests: boundedInt(
+      'FORGOT_PASSWORD_MAX_REQUESTS',
+      3,
+      1,
+      100,
+    ),
+    forgotPasswordWindowSeconds: boundedInt(
+      'FORGOT_PASSWORD_WINDOW_SECONDS',
+      900,
+      60,
+      86400,
+    ),
     swaggerEnabled: toBool(process.env.SWAGGER_ENABLED, true),
     swaggerPath: toStr(process.env.SWAGGER_PATH, 'docs'),
     logLevel: toStr(process.env.LOG_LEVEL, 'debug'),

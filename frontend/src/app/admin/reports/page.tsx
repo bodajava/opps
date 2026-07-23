@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { apiClient } from "@/lib/api-client"
+import { apiClient, getApiBaseUrl } from "@/lib/api-client"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -334,7 +334,7 @@ export default function AdminReportsPage() {
   })
 
   function exportCSV() {
-    window.open(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:4001/api"}/admin/orders/export/csv`, "_blank")
+    window.open(`${getApiBaseUrl()}/admin/orders/export/csv`, "_blank")
   }
 
   const isLoading = overviewQuery.isLoading || salesQuery.isLoading || productsQuery.isLoading || customersQuery.isLoading || profitabilityQuery.isLoading

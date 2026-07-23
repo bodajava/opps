@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { connection } from "next/server";
 import { HeroSection } from "@/components/hero-section";
 import { FeaturesSection } from "@/components/features-section";
 import { CategoryCard } from "@/components/category-card";
@@ -8,23 +9,32 @@ import { NewsletterSection } from "@/components/newsletter-section";
 import { SectionHeader } from "@/components/section-header";
 import { getCategories } from "@/lib/api/categories";
 import { getFeaturedProducts } from "@/lib/api/products";
+import { isRecoverableApiError } from "@/lib/api-client";
 import type { Category, Product } from "@/lib/types";
 
-export const revalidate = 3600;
-
 export default async function HomePage() {
+  await connection();
+
   let categories: Category[] = [];
   let featuredProducts: Product[] = [];
+  let categoriesUnavailable = false;
+  let productsUnavailable = false;
 
   try {
     const catRes = await getCategories();
     if (catRes.success) categories = catRes.data;
-  } catch {}
+  } catch (error) {
+    if (!isRecoverableApiError(error)) throw error;
+    categoriesUnavailable = true;
+  }
 
   try {
     const prodRes = await getFeaturedProducts();
     if (prodRes.success) featuredProducts = prodRes.data;
-  } catch {}
+  } catch (error) {
+    if (!isRecoverableApiError(error)) throw error;
+    productsUnavailable = true;
+  }
 
   return (
     <>
@@ -43,6 +53,11 @@ export default async function HomePage() {
               <CategoryCard key={category.id} category={category} />
             ))}
           </div>
+          {categoriesUnavailable && (
+            <p role="alert" className="mt-6 text-center text-sm text-muted-foreground">
+              Categories are temporarily unavailable.
+            </p>
+          )}
         </div>
       </section>
 
@@ -55,6 +70,11 @@ export default async function HomePage() {
             className="mb-8"
           />
           <ProductGrid products={featuredProducts} />
+          {productsUnavailable && (
+            <p role="alert" className="mt-6 text-center text-sm text-muted-foreground">
+              Featured products are temporarily unavailable.
+            </p>
+          )}
         </div>
       </section>
 

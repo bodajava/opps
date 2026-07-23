@@ -1,5 +1,6 @@
 import type { Metadata } from "next"
 import type { ReactNode } from "react"
+import { ProtectedRouteGuard } from "@/components/auth/protected-route-guard"
 
 export const metadata: Metadata = {
   title: "Checkout - opps",
@@ -7,5 +8,5 @@ export const metadata: Metadata = {
 }
 
 export default function CheckoutLayout({ children }: { children: ReactNode }) {
-  return <>{children}</>
+  return <ProtectedRouteGuard>{children}</ProtectedRouteGuard>
 }

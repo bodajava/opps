@@ -1,3 +1,4 @@
+import axios from 'axios';
 import { apiClient, mapApiError } from '@/lib/api-client';
 import type { ApiResponse, PaginatedResponse, Product } from '@/lib/types';
 import { mapProduct, mapPaginatedResponse, requireDynamicRecord, requireDynamicRecords } from './mappers';
@@ -17,7 +18,10 @@ export async function getProducts(params?: {
     const envelope = requireDynamicRecord(response.data, 'GET /products');
     return mapPaginatedResponse(requireDynamicRecord(envelope.data, 'GET /products data'), mapProduct);
   } catch (error) {
-    throw mapApiError(error);
+    if (axios.isAxiosError(error)) {
+      throw mapApiError(error);
+    }
+    throw error;
   }
 }
 
@@ -32,7 +36,10 @@ export async function getProductBySlug(slug: string): Promise<ApiResponse<Produc
       data: mapProduct(requireDynamicRecord(envelope.data, 'GET /products/:slug data')),
     };
   } catch (error) {
-    throw mapApiError(error);
+    if (axios.isAxiosError(error)) {
+      throw mapApiError(error);
+    }
+    throw error;
   }
 }
 
@@ -47,7 +54,10 @@ export async function getFeaturedProducts(): Promise<ApiResponse<Product[]>> {
       data: requireDynamicRecords(envelope.data, 'GET /products/featured data').map(mapProduct),
     };
   } catch (error) {
-    throw mapApiError(error);
+    if (axios.isAxiosError(error)) {
+      throw mapApiError(error);
+    }
+    throw error;
   }
 }
 
@@ -62,6 +72,9 @@ export async function getBestSellers(): Promise<ApiResponse<Product[]>> {
       data: requireDynamicRecords(envelope.data, 'GET /products/best-sellers data').map(mapProduct),
     };
   } catch (error) {
-    throw mapApiError(error);
+    if (axios.isAxiosError(error)) {
+      throw mapApiError(error);
+    }
+    throw error;
   }
 }

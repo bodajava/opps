@@ -1,8 +1,6 @@
 export interface CampaignJobData {
   campaignId: string;
-  recipients: string[];
+  recipient: string;
   subject: string;
   content: string;
-  senderName?: string;
-  senderEmail?: string;
 }

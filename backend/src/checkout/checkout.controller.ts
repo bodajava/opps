@@ -16,6 +16,7 @@ import {
   textValue,
   toDynamicRecord,
 } from '../common/helpers/dynamic-value.helper';
+import { Throttle } from '@nestjs/throttler';
 
 interface RequestWithUser extends Request {
   user?: JwtPayload;
@@ -27,12 +28,14 @@ export class CheckoutController {
   constructor(private readonly checkoutService: CheckoutService) {}
 
   @Post('quote')
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
   async getQuote(@Body() dto: CheckoutQuoteDto) {
     return this.checkoutService.getQuote(dto);
   }
 
   @Post('orders')
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @HttpCode(HttpStatus.CREATED)
   async createOrder(@Body() dto: CreateOrderDto, @Req() req: RequestWithUser) {
     const sessionId =

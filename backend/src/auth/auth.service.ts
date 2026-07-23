@@ -2,9 +2,10 @@ import {
   Injectable,
   UnauthorizedException,
   BadRequestException,
-  ConflictException,
+  ForbiddenException,
   Logger,
   ServiceUnavailableException,
+  Optional,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -12,7 +13,11 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
-import { User, UserDocument } from '../users/schemas/user.schema';
+import {
+  AccountStatus,
+  User,
+  UserDocument,
+} from '../users/schemas/user.schema';
 import { Role, RoleDocument } from '../roles/schemas/role.schema';
 import {
   RefreshToken,
@@ -24,6 +29,27 @@ import { EmailOtpPurpose } from '../email-verification/schemas/email-otp.schema'
 import { JwtPayload } from '../common/interfaces/jwt-payload.interface';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { LoginAttemptRedisRepository } from '../redis/login-attempt-redis.repository';
+import { RateLimitRedisRepository } from '../redis/rate-limit-redis.repository';
+import { RedisService } from '../redis/redis.service';
+import { RateLimitException } from '../common/exceptions/rate-limit.exception';
+import { EmailProducerService } from '../email-queue/email-producer.service';
+import { EmailJobKind } from '../email-queue/email-job.types';
+import {
+  RegistrationPendingResponseDto,
+  RegistrationStatus,
+  VerificationChannel,
+  VerifyRegistrationResponseDto,
+} from './dto/registration-verification.dto';
+
+function maskEmail(email: string): string {
+  const separator = email.indexOf('@');
+  if (separator <= 0) return '***';
+  const local = email.slice(0, separator);
+  const domain = email.slice(separator + 1);
+  const visible = local.slice(0, Math.min(2, local.length));
+  return `${visible}${'*'.repeat(Math.max(3, local.length - visible.length))}@${domain}`;
+}
 
 @Injectable()
 export class AuthService {
@@ -38,12 +64,23 @@ export class AuthService {
     private readonly configService: ConfigService,
     private readonly emailService: EmailService,
     private readonly emailVerificationService: EmailVerificationService,
+    @Optional() private readonly loginAttempts?: LoginAttemptRedisRepository,
+    @Optional() private readonly rateLimits?: RateLimitRedisRepository,
+    @Optional() private readonly redisService?: RedisService,
+    @Optional() private readonly emailProducer?: EmailProducerService,
   ) {}
 
-  async register(dto: RegisterDto, userAgent?: string, ip?: string) {
-    const existingUser = await this.userModel.findOne({ email: dto.email });
+  async register(
+    dto: RegisterDto,
+    _userAgent?: string,
+    _ip?: string,
+  ): Promise<RegistrationPendingResponseDto> {
+    const normalizedEmail = dto.email.trim().toLowerCase();
+    const existingUser = await this.userModel.findOne({
+      email: normalizedEmail,
+    });
     if (existingUser) {
-      throw new ConflictException('Email already registered');
+      return this.syntheticPendingRegistration(normalizedEmail);
     }
 
     const saltRounds = this.configService.get<number>(
@@ -62,31 +99,15 @@ export class AuthService {
       });
     }
 
-    try {
-      await this.emailVerificationService.sendOTP(
-        dto.email,
-        EmailOtpPurpose.EMAIL_VERIFICATION,
-      );
-    } catch (error) {
-      this.logger.warn(
-        'Registration blocked because verification email could not be sent',
-      );
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
-      throw new ServiceUnavailableException(
-        'Verification email could not be sent. Please try again later.',
-      );
-    }
-
-    const user = await this.userModel.create({
+    await this.userModel.create({
       fullName: dto.fullName,
-      email: dto.email,
+      email: normalizedEmail,
       password: hashedPassword,
       phone: dto.phone,
       role: customerRole._id.toString(),
       permissions: customerRole.permissions || [],
       isActive: true,
+      accountStatus: AccountStatus.PendingVerification,
       provider: 'local',
       ...(dto.marketingConsent === true && {
         marketingConsent: true,
@@ -94,14 +115,188 @@ export class AuthService {
         marketingConsentSource: 'registration',
       }),
     });
+    return this.beginRegistrationVerification(normalizedEmail);
+  }
 
-    return this.generateTokens(user, userAgent, ip);
+  private syntheticPendingRegistration(
+    email: string,
+  ): RegistrationPendingResponseDto {
+    return {
+      status: RegistrationStatus.PendingVerification,
+      verificationChannel: VerificationChannel.Email,
+      maskedDestination: maskEmail(email),
+      expiresInSeconds:
+        this.configService.get<number>('app.emailOtpExpiresMinutes', 10) * 60,
+      resendAfterSeconds: this.configService.get<number>(
+        'app.emailOtpResendSeconds',
+        60,
+      ),
+      verificationFlowId: crypto.randomBytes(32).toString('base64url'),
+    };
+  }
+
+  private async beginRegistrationVerification(
+    email: string,
+  ): Promise<RegistrationPendingResponseDto> {
+    const verificationFlowId = crypto.randomBytes(32).toString('base64url');
+    const verificationFlowHash = crypto
+      .createHash('sha256')
+      .update(verificationFlowId)
+      .digest('hex');
+    try {
+      await this.emailVerificationService.sendOTP(
+        email,
+        EmailOtpPurpose.EMAIL_VERIFICATION,
+        verificationFlowHash,
+      );
+    } catch (error) {
+      this.logger.warn('Registration verification delivery failed');
+      if (error instanceof RateLimitException) throw error;
+      throw new ServiceUnavailableException(
+        'Verification email could not be sent. Please try again later.',
+      );
+    }
+    return {
+      status: RegistrationStatus.PendingVerification,
+      verificationChannel: VerificationChannel.Email,
+      maskedDestination: maskEmail(email),
+      expiresInSeconds:
+        this.configService.get<number>('app.emailOtpExpiresMinutes', 10) * 60,
+      resendAfterSeconds: this.configService.get<number>(
+        'app.emailOtpResendSeconds',
+        60,
+      ),
+      verificationFlowId,
+    };
+  }
+
+  async verifyRegistration(
+    verificationFlowId: string,
+    otp: string,
+    userAgent?: string,
+    ip?: string,
+  ): Promise<VerifyRegistrationResponseDto> {
+    const email = await this.emailVerificationService.verifyRegistrationOTP(
+      verificationFlowId,
+      otp,
+    );
+    const user = await this.userModel.findOneAndUpdate(
+      { email, accountStatus: AccountStatus.PendingVerification },
+      {
+        $set: {
+          accountStatus: AccountStatus.Verified,
+          emailVerifiedAt: new Date(),
+        },
+      },
+      { returnDocument: 'after' },
+    );
+    if (!user) throw new BadRequestException('Invalid verification flow');
+    const tokens = await this.generateTokens(user, userAgent, ip);
+    try {
+      if (
+        this.configService.get<boolean>('app.emailQueueEnabled', false) &&
+        this.emailProducer
+      ) {
+        await this.emailProducer.enqueue({
+          kind: EmailJobKind.Welcome,
+          recipient: user.email,
+          operationId: user._id.toString(),
+          name: user.fullName,
+        });
+      } else {
+        await this.emailService.sendWelcome(user.email, user.fullName);
+      }
+    } catch {
+      this.logger.warn('Post-verification welcome email delivery failed');
+    }
+    return { status: 'verified_authenticated', ...tokens };
+  }
+
+  async resendRegistration(
+    verificationFlowId: string,
+  ): Promise<{ resendAfterSeconds: number }> {
+    return this.emailVerificationService.resendRegistrationOTP(
+      verificationFlowId,
+    );
   }
 
   async login(dto: LoginDto, userAgent?: string, ip?: string) {
+    const normalizedEmail = dto.email.trim().toLowerCase();
+    const remoteIp = ip || 'unavailable';
+    if (this.redisService?.isEnabled()) {
+      if (!this.loginAttempts)
+        throw new ServiceUnavailableException(
+          'Login protection is temporarily unavailable',
+        );
+      const maximum = this.configService.get<number>('app.loginMaxAttempts', 5);
+      const lock = await this.loginAttempts.isBlocked(
+        remoteIp,
+        normalizedEmail,
+        maximum,
+      );
+      if (lock.blocked) {
+        throw new RateLimitException({
+          code: 'LOGIN_RATE_LIMITED',
+          message: 'Too many login attempts. Please try again later.',
+          retryAfterSeconds: lock.retryAfterSeconds,
+          limit: maximum,
+          remaining: 0,
+          resetAtEpochSeconds:
+            Math.ceil(Date.now() / 1000) + lock.retryAfterSeconds,
+        });
+      }
+    }
     const user = await this.validateUser(dto.email, dto.password);
     if (!user) {
+      if (this.redisService?.isEnabled()) {
+        if (!this.loginAttempts)
+          throw new ServiceUnavailableException(
+            'Login protection is temporarily unavailable',
+          );
+        const maximum = this.configService.get<number>(
+          'app.loginMaxAttempts',
+          5,
+        );
+        const attempt = await this.loginAttempts.recordFailure(
+          remoteIp,
+          normalizedEmail,
+          maximum,
+          this.configService.get<number>('app.loginAttemptWindowSeconds', 900),
+          this.configService.get<number>('app.loginLockSeconds', 900),
+        );
+        if (attempt.blocked) {
+          this.logger.warn(
+            'Login temporarily blocked by distributed brute-force protection',
+          );
+          throw new RateLimitException({
+            code: 'LOGIN_RATE_LIMITED',
+            message: 'Too many login attempts. Please try again later.',
+            retryAfterSeconds: attempt.retryAfterSeconds,
+            limit: maximum,
+            remaining: 0,
+            resetAtEpochSeconds:
+              Math.ceil(Date.now() / 1000) + attempt.retryAfterSeconds,
+          });
+        }
+      }
       throw new UnauthorizedException('Invalid email or password');
+    }
+
+    if (user.accountStatus === AccountStatus.PendingVerification) {
+      const pending = await this.beginRegistrationVerification(user.email);
+      throw new ForbiddenException({
+        code: 'ACCOUNT_VERIFICATION_REQUIRED',
+        message: 'Account verification is required before signing in.',
+        ...pending,
+      });
+    }
+
+    if (this.redisService?.isEnabled()) {
+      if (!this.loginAttempts)
+        throw new ServiceUnavailableException(
+          'Login protection is temporarily unavailable',
+        );
+      await this.loginAttempts.clear(remoteIp, normalizedEmail);
     }
 
     await this.userModel.findByIdAndUpdate(user._id, {
@@ -153,7 +348,29 @@ export class AuthService {
     );
   }
 
-  async forgotPassword(email: string) {
+  async forgotPassword(email: string, ip = 'unavailable') {
+    if (this.redisService?.isEnabled()) {
+      if (!this.rateLimits)
+        throw new ServiceUnavailableException(
+          'Password reset protection is temporarily unavailable',
+        );
+      const limit = this.configService.get<number>(
+        'app.forgotPasswordMaxRequests',
+        3,
+      );
+      const result = await this.rateLimits.consume(
+        'auth:forgot-password',
+        `${ip}:${email.trim().toLowerCase()}`,
+        limit,
+        this.configService.get<number>('app.forgotPasswordWindowSeconds', 900),
+      );
+      if (!result.allowed)
+        throw new RateLimitException({
+          code: 'FORGOT_PASSWORD_RATE_LIMITED',
+          message: 'Too many requests. Please try again later.',
+          ...result,
+        });
+    }
     const user = await this.userModel.findOne({ email });
     if (!user) {
       return {
@@ -174,12 +391,20 @@ export class AuthService {
     });
 
     try {
-      await this.emailService.sendPasswordReset(user.email, resetToken);
-    } catch (error) {
-      this.logger.error(
-        'Failed to send password reset email',
-        error instanceof Error ? error.message : error,
-      );
+      if (this.configService.get<boolean>('app.emailQueueEnabled', false)) {
+        if (!this.emailProducer)
+          throw new ServiceUnavailableException('Email queue is unavailable');
+        await this.emailProducer.enqueue({
+          kind: EmailJobKind.PasswordReset,
+          recipient: user.email,
+          operationId: resetTokenHash,
+          resetToken,
+        });
+      } else {
+        await this.emailService.sendPasswordReset(user.email, resetToken);
+      }
+    } catch {
+      this.logger.error('Failed to send password reset email');
     }
 
     return {

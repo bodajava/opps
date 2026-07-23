@@ -15,32 +15,23 @@ import { ShoppingBag, Trash2, ArrowLeft, Loader2, Tag } from "lucide-react"
 import { toast } from "sonner"
 
 function CartPage() {
-  const {
-    items,
-    subtotal,
-    deliveryFee,
-    discount,
-    total,
-    couponCode,
-    removeItem,
-    updateQuantity,
-    applyCoupon,
-    removeCoupon,
-  } = useCartStore()
+  const { items, subtotal, deliveryFee, discount, total, couponCode, removeItem, updateQuantity, applyCoupon, removeCoupon, isLoading } = useCartStore()
 
   const [couponInput, setCouponInput] = useState("")
   const [isApplying, setIsApplying] = useState(false)
-  const [isLoading] = useState(false)
-
-  const handleApplyCoupon = () => {
+  const handleApplyCoupon = async () => {
     if (!couponInput.trim()) return
     setIsApplying(true)
-    setTimeout(() => {
-      applyCoupon(couponInput.toUpperCase(), subtotal * 0.1)
+    try {
+      await applyCoupon(couponInput.toUpperCase())
       setIsApplying(false)
       setCouponInput("")
       toast.success("Coupon applied successfully!")
-    }, 500)
+    } catch {
+      toast.error("That coupon could not be applied.")
+    } finally {
+      setIsApplying(false)
+    }
   }
 
   if (isLoading) {
@@ -64,9 +55,7 @@ function CartPage() {
             <ShoppingBag className="h-12 w-12 text-muted-foreground" />
           </div>
           <h1 className="text-2xl font-bold">Your Cart is Empty</h1>
-          <p className="mt-2 text-muted-foreground">
-            Looks like you haven&apos;t added any cookies yet.
-          </p>
+          <p className="mt-2 text-muted-foreground">Looks like you haven&apos;t added any cookies yet.</p>
           <Button asChild className="mt-6">
             <Link href="/products">
               <ArrowLeft className="mr-2 h-4 w-4" />
@@ -86,19 +75,10 @@ function CartPage() {
       <div className="grid gap-8 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
           {items.map((item) => (
-            <div
-              key={item.id}
-              className="flex gap-4 rounded-lg border p-4"
-            >
+            <div key={item.id} className="flex gap-4 rounded-lg border p-4">
               <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-md">
                 {item.image ? (
-                  <Image
-                    src={item.image}
-                    alt={item.name}
-                    fill
-                    className="object-cover"
-                    sizes="96px"
-                  />
+                  <Image src={item.image} alt={item.name} fill className="object-cover" sizes="96px" />
                 ) : (
                   <div className="flex h-full items-center justify-center bg-muted">
                     <span className="text-2xl text-muted-foreground/30">{item.name[0]}</span>
@@ -109,23 +89,17 @@ function CartPage() {
                 <div>
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <Link
-                        href={`/products/${item.sku}`}
-                        className="font-medium hover:text-primary"
-                      >
+                      <Link href={`/products/${item.sku}`} className="font-medium hover:text-primary">
                         {item.name}
                       </Link>
-                      {item.variantName && (
-                        <p className="text-sm text-muted-foreground">{item.variantName}</p>
-                      )}
+                      {item.variantName && <p className="text-sm text-muted-foreground">{item.variantName}</p>}
                     </div>
                     <Button
                       variant="ghost"
                       size="icon"
                       className="h-8 w-8 text-muted-foreground hover:text-destructive"
                       onClick={() => {
-                        removeItem(item.id)
-                        toast.success("Item removed from cart")
+                        void removeItem(item.id).then(() => toast.success("Item removed from cart"))
                       }}
                     >
                       <Trash2 className="h-4 w-4" />
@@ -133,15 +107,8 @@ function CartPage() {
                   </div>
                 </div>
                 <div className="flex items-center justify-between">
-                  <QuantitySelector
-                    value={item.quantity}
-                    onChange={(q) => updateQuantity(item.id, q)}
-                    min={1}
-                    max={99}
-                  />
-                  <span className="text-lg font-semibold tabular-nums">
-                    {formatPrice(item.price * item.quantity)}
-                  </span>
+                  <QuantitySelector value={item.quantity} onChange={(q) => void updateQuantity(item.id, q)} min={1} max={99} />
+                  <span className="text-lg font-semibold tabular-nums">{formatPrice(item.price * item.quantity)}</span>
                 </div>
               </div>
             </div>
@@ -158,9 +125,7 @@ function CartPage() {
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Delivery</span>
-                <span className="tabular-nums">
-                  {deliveryFee === 0 ? "Free" : formatPrice(deliveryFee)}
-                </span>
+                <span className="tabular-nums">{deliveryFee === 0 ? "Free" : formatPrice(deliveryFee)}</span>
               </div>
               {discount > 0 && (
                 <div className="flex justify-between text-green-600">
@@ -185,34 +150,15 @@ function CartPage() {
               <h3 className="text-sm font-medium">Coupon Code</h3>
             </div>
             <div className="flex gap-2">
-              <Input
-                placeholder="Enter code"
-                value={couponInput}
-                onChange={(e) => setCouponInput(e.target.value)}
-                className="flex-1"
-              />
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={handleApplyCoupon}
-                disabled={isApplying || !couponInput.trim()}
-              >
-                {isApplying ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                ) : (
-                  "Apply"
-                )}
+              <Input placeholder="Enter code" value={couponInput} onChange={(e) => setCouponInput(e.target.value)} className="flex-1" />
+              <Button variant="secondary" size="sm" onClick={handleApplyCoupon} disabled={isApplying || !couponInput.trim()}>
+                {isApplying ? <Loader2 className="h-3 w-3 animate-spin" /> : "Apply"}
               </Button>
             </div>
             {couponCode && (
               <div className="flex items-center justify-between rounded-md bg-primary/5 px-3 py-2">
                 <span className="text-sm font-medium text-primary">Code: {couponCode}</span>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6"
-                  onClick={removeCoupon}
-                >
+                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={removeCoupon}>
                   <Trash2 className="h-3 w-3" />
                 </Button>
               </div>

@@ -1,4 +1,4 @@
-import { OrderStatus, PaymentMethodType, PaymentStatus, type Category, type Order, type Product } from "@/lib/types"
+import { OrderStatus, PaymentMethodType, PaymentStatus, type Cart, type Category, type Order, type Product } from "@/lib/types"
 
 function text(value: DynamicValue, fallback = ""): string {
   return typeof value === "string" ? value : fallback
@@ -92,16 +92,19 @@ export function mapProduct(raw: DynamicRecord): Product {
     images: sanitizeImages(strings(raw.images)),
     categoryId: entityId(raw.category, raw.categoryId),
     category: Object.keys(category).length > 0 ? mapCategory(category) : undefined,
-    variants: variants.length > 0 ? variants.map((variant) => ({
-      id: entityId(variant.id, variant._id),
-      name: text(variant.name),
-      sku: text(variant.sku),
-      price: numeric(variant.price ?? variant.unitPrice),
-      compareAtPrice: optionalNumber(variant.compareAtPrice),
-      stock: numeric(variant.stock),
-      isActive: booleanValue(variant.isActive, true),
-      attributes: stringMap(variant.attributes),
-    })) : undefined,
+    variants:
+      variants.length > 0
+        ? variants.map((variant) => ({
+            id: entityId(variant.id, variant._id),
+            name: text(variant.name),
+            sku: text(variant.sku),
+            price: numeric(variant.price ?? variant.unitPrice),
+            compareAtPrice: optionalNumber(variant.compareAtPrice),
+            stock: numeric(variant.stock),
+            isActive: booleanValue(variant.isActive, true),
+            attributes: stringMap(variant.attributes),
+          }))
+        : undefined,
     stock: numeric(raw.stock),
     inStock: booleanValue(raw.inStock, true),
     status: text(raw.status, "in_stock"),
@@ -131,6 +134,34 @@ export function mapCategory(raw: DynamicRecord): Category {
     productCount: numeric(raw.productCount),
     sortOrder: numeric(raw.sortOrder),
     isActive: booleanValue(raw.isActive, true),
+    createdAt: text(raw.createdAt),
+    updatedAt: text(raw.updatedAt),
+  }
+}
+
+export function mapCart(raw: DynamicRecord): Cart {
+  const items = dynamicRecords(raw.items).map((item) => ({
+    id: entityId(item.id, item._id),
+    productId: entityId(item.product, item.productId),
+    variantId: entityId(item.variant, item.variantId) || undefined,
+    name: text(item.name),
+    image: sanitizeImage(text(item.image)),
+    price: numeric(item.price),
+    quantity: numeric(item.quantity, 1),
+    variantName: optionalText(item.variantName),
+    sku: text(item.sku),
+    subtotal: numeric(item.subtotal),
+  }))
+  return {
+    id: entityId(raw.id, raw._id),
+    user: entityId(raw.user),
+    items,
+    couponCode: optionalText(raw.couponCode),
+    discount: numeric(raw.discount),
+    subtotal: numeric(raw.subtotal),
+    deliveryFee: numeric(raw.deliveryFee),
+    total: numeric(raw.total),
+    itemCount: items.reduce((sum, item) => sum + item.quantity, 0),
     createdAt: text(raw.createdAt),
     updatedAt: text(raw.updatedAt),
   }
@@ -190,7 +221,13 @@ export function mapOrder(raw: DynamicRecord): Order {
 export function mapPaginatedResponse<T>(
   raw: DynamicRecord,
   mapper: (item: DynamicRecord) => T,
-): { success: boolean; statusCode: number; message: string; data: T[]; meta: { page: number; limit: number; total: number; totalPages: number } } {
+): {
+  success: boolean
+  statusCode: number
+  message: string
+  data: T[]
+  meta: { page: number; limit: number; total: number; totalPages: number }
+} {
   const pagination = dynamicRecord(raw.pagination)
   return {
     success: true,

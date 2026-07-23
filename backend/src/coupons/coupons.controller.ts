@@ -20,12 +20,14 @@ import { Public } from '../common/decorators/public.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { Throttle } from '@nestjs/throttler';
 
 @Controller()
 export class CouponsController {
   constructor(private readonly couponsService: CouponsService) {}
 
   @Public()
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
   @Post('coupons/validate')
   @HttpCode(HttpStatus.OK)
   async validate(@Body() dto: ValidateCouponDto) {
@@ -38,6 +40,7 @@ export class CouponsController {
   }
 
   @UseGuards(AuthGuard('jwt'))
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
   @Post('coupons/validate-authenticated')
   @HttpCode(HttpStatus.OK)
   async validateAuthenticated(

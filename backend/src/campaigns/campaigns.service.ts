@@ -188,13 +188,12 @@ export class CampaignsService {
   }
 
   async sendCampaign(id: string): Promise<CampaignDocument> {
-    const queueEnabled = this.configService.get<boolean>(
-      'app.campaignQueueEnabled',
-      false,
-    );
+    const queueEnabled =
+      this.configService.get<boolean>('app.emailQueueEnabled', false) ||
+      this.configService.get<boolean>('app.campaignQueueEnabled', false);
     if (!queueEnabled) {
       throw new BadRequestException(
-        'Bulk campaign sending is disabled. Set CAMPAIGN_QUEUE_ENABLED=true and configure Redis/BullMQ queue to enable bulk send. ' +
+        'Bulk campaign sending is disabled. Set EMAIL_QUEUE_ENABLED=true and configure Redis/BullMQ to enable bulk send. ' +
           'For draft/preview, use the test email endpoint (POST campaigns/:id/test).',
       );
     }
@@ -270,7 +269,7 @@ export class CampaignsService {
       total: emails.length,
       audience: campaign.audience,
       sampleEmails: emails.slice(0, 5),
-      note: 'Bulk sending requires CAMPAIGN_QUEUE_ENABLED=true with Redis/BullMQ',
+      note: 'Bulk sending requires EMAIL_QUEUE_ENABLED=true with Redis/BullMQ',
     };
   }
 }

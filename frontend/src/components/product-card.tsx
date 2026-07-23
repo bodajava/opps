@@ -13,6 +13,8 @@ import type { Product } from "@/lib/types"
 import { ShoppingCart } from "lucide-react"
 import { toast } from "sonner"
 import { useState } from "react"
+import { useAuthStore } from "@/store/auth-store"
+import { useRouter } from "next/navigation"
 
 interface ProductCardProps {
   product: Product
@@ -20,28 +22,34 @@ interface ProductCardProps {
 }
 
 function ProductCard({ product, className }: ProductCardProps) {
-  const addItem = useCartStore((s) => s.addItem)
+  const addProduct = useCartStore((s) => s.addProduct)
+  const authStatus = useAuthStore((s) => s.authStatus)
+  const user = useAuthStore((s) => s.user)
+  const router = useRouter()
   const [imgError, setImgError] = useState(false)
   const [isAdding, setIsAdding] = useState(false)
 
-  const isOnSale =
-    product.compareAtPrice !== undefined && product.compareAtPrice !== null && product.compareAtPrice > product.price
+  const isOnSale = product.compareAtPrice !== undefined && product.compareAtPrice !== null && product.compareAtPrice > product.price
 
-  const handleAddToCart = (e: React.MouseEvent) => {
+  const canUseCart = authStatus === "authenticated" && !!user && user.accountStatus !== "pending_verification"
+
+  const handleAddToCart = async (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
+    if (!canUseCart) {
+      const destination = authStatus === "registration_pending_verification" ? "/verify-account" : "/login"
+      router.push(`${destination}?returnTo=${encodeURIComponent(`/products/${product.slug}`)}`)
+      return
+    }
     setIsAdding(true)
-    addItem({
-      id: `temp-${product.id}-${Date.now()}`,
-      productId: product.id,
-      name: product.name,
-      image: product.images[0] || "",
-      price: product.compareAtPrice || product.price,
-      quantity: 1,
-      sku: product.slug,
-    })
-    toast.success(`${product.name} added to cart`)
-    setTimeout(() => setIsAdding(false), 300)
+    try {
+      await addProduct(product.id, undefined, 1)
+      toast.success(`${product.name} added to cart`)
+    } catch {
+      toast.error("We couldn't add this item. Please try again.")
+    } finally {
+      setIsAdding(false)
+    }
   }
 
   return (
@@ -49,7 +57,7 @@ function ProductCard({ product, className }: ProductCardProps) {
       href={`/products/${product.slug}`}
       className={cn(
         "group relative flex flex-col rounded-xl border bg-card shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-md",
-        className
+        className,
       )}
     >
       <div className="relative aspect-square overflow-hidden rounded-t-xl">
@@ -80,29 +88,22 @@ function ProductCard({ product, className }: ProductCardProps) {
       </div>
       <div className="flex flex-1 flex-col gap-1.5 p-4">
         <h3 className="line-clamp-1 text-sm font-medium">{product.name}</h3>
-        {product.shortDescription && (
-          <p className="line-clamp-1 text-xs text-muted-foreground">{product.shortDescription}</p>
-        )}
+        {product.shortDescription && <p className="line-clamp-1 text-xs text-muted-foreground">{product.shortDescription}</p>}
         <div className="flex items-center gap-1">
           <StarRating rating={product.rating} size="sm" />
-          {product.reviewCount > 0 && (
-            <span className="text-xs text-muted-foreground">({product.reviewCount})</span>
-          )}
+          {product.reviewCount > 0 && <span className="text-xs text-muted-foreground">({product.reviewCount})</span>}
         </div>
         <div className="mt-auto flex items-center justify-between pt-2">
-          <PriceDisplay
-            price={product.price}
-            salePrice={product.compareAtPrice}
-            size="sm"
-          />
+          <PriceDisplay price={product.price} salePrice={product.compareAtPrice} size="sm" />
           <Button
-            size="icon"
-            variant="secondary"
-            className="h-8 w-8 shrink-0"
+            size={canUseCart ? "icon" : "sm"}
+            variant={canUseCart ? "secondary" : "outline"}
+            className={canUseCart ? "h-8 w-8 shrink-0" : "h-8 shrink-0 gap-1 px-2 text-xs"}
             onClick={handleAddToCart}
             disabled={isAdding}
           >
             <ShoppingCart className="h-4 w-4" />
+            <span className={canUseCart ? "sr-only" : ""}>{canUseCart ? "Add to cart" : "Sign in"}</span>
           </Button>
         </div>
       </div>

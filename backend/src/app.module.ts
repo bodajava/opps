@@ -1,7 +1,11 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import {
+  ThrottlerGuard,
+  ThrottlerModule,
+  ThrottlerStorage,
+} from '@nestjs/throttler';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { join } from 'path';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
@@ -43,6 +47,9 @@ import { CampaignQueueModule } from './campaign-queue/campaign-queue.module';
 import { CampaignsModule } from './campaigns/campaigns.module';
 import { UnsubscribeModule } from './unsubscribe/unsubscribe.module';
 import { SeedModule } from './seed/seed.module';
+import { RedisModule } from './redis/redis.module';
+import { EmailQueueModule } from './email-queue/email-queue.module';
+import { RedisThrottlerStorage } from './redis/redis-throttler.storage';
 
 @Module({
   imports: [
@@ -58,6 +65,8 @@ import { SeedModule } from './seed/seed.module';
       }),
       inject: [ConfigService],
     }),
+    RedisModule,
+    EmailQueueModule,
     ThrottlerModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => ({
@@ -123,6 +132,10 @@ import { SeedModule } from './seed/seed.module';
   controllers: [AppController],
   providers: [
     AppService,
+    {
+      provide: ThrottlerStorage,
+      useClass: RedisThrottlerStorage,
+    },
     {
       provide: APP_FILTER,
       useClass: HttpExceptionFilter,

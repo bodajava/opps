@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { CartController } from './cart.controller';
 import { CartService } from './cart.service';
+import { VerifiedAccountGuard } from '../common/guards/verified-account.guard';
 
 describe('CartController', () => {
   let controller: CartController;
@@ -20,7 +21,10 @@ describe('CartController', () => {
           },
         },
       ],
-    }).compile();
+    })
+      .overrideGuard(VerifiedAccountGuard)
+      .useValue({ canActivate: jest.fn(() => true) })
+      .compile();
 
     controller = module.get<CartController>(CartController);
   });

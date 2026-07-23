@@ -17,6 +17,8 @@ import { cn, formatPrice } from "@/lib/utils"
 import type { Product } from "@/lib/types"
 import { ShoppingCart, Check, Clock, Package, Shield } from "lucide-react"
 import { toast } from "sonner"
+import { useAuthStore } from "@/store/auth-store"
+import { useRouter } from "next/navigation"
 
 interface ProductDetailsClientProps {
   product: Product
@@ -24,13 +26,14 @@ interface ProductDetailsClientProps {
 }
 
 function ProductDetailsClient({ product, relatedProducts }: ProductDetailsClientProps) {
-  const addItem = useCartStore((s) => s.addItem)
+  const addProduct = useCartStore((s) => s.addProduct)
+  const authStatus = useAuthStore((s) => s.authStatus)
+  const user = useAuthStore((s) => s.user)
+  const router = useRouter()
   const [selectedImage, setSelectedImage] = useState(0)
   const [erroredImages, setErroredImages] = useState<Set<number>>(new Set())
 
-  const [selectedVariantId, setSelectedVariantId] = useState<string | undefined>(
-    product.variants?.[0]?.id
-  )
+  const [selectedVariantId, setSelectedVariantId] = useState<string | undefined>(product.variants?.[0]?.id)
   const [quantity, setQuantity] = useState(1)
   const [isAdding, setIsAdding] = useState(false)
 
@@ -43,25 +46,34 @@ function ProductDetailsClient({ product, relatedProducts }: ProductDetailsClient
 
   const breadcrumbItems = [
     { label: "Products", href: "/products" },
-    ...(product.category ? [{ label: product.category.name, href: `/products?category=${product.category.slug}` }] : []),
+    ...(product.category
+      ? [
+          {
+            label: product.category.name,
+            href: `/products?category=${product.category.slug}`,
+          },
+        ]
+      : []),
     { label: product.name },
   ]
 
-  const handleAddToCart = () => {
+  const canUseCart = authStatus === "authenticated" && !!user && user.accountStatus !== "pending_verification"
+
+  const handleAddToCart = async () => {
+    if (!canUseCart) {
+      const destination = authStatus === "registration_pending_verification" ? "/verify-account" : "/login"
+      router.push(`${destination}?returnTo=${encodeURIComponent(`/products/${product.slug}`)}`)
+      return
+    }
     setIsAdding(true)
-    addItem({
-      id: `temp-${product.id}-${selectedVariantId || ""}-${Date.now()}`,
-      productId: product.id,
-      variantId: selectedVariantId,
-      name: product.name,
-      image: product.images[0] || "",
-      price: displayPrice,
-      quantity,
-      variantName: selectedVariant?.name,
-      sku: selectedVariant?.sku || product.slug,
-    })
-    toast.success(`${product.name} added to cart`)
-    setTimeout(() => setIsAdding(false), 300)
+    try {
+      await addProduct(product.id, selectedVariantId, quantity)
+      toast.success(`${product.name} added to cart`)
+    } catch {
+      toast.error("We couldn't add this item. Please try again.")
+    } finally {
+      setIsAdding(false)
+    }
   }
 
   return (
@@ -100,16 +112,10 @@ function ProductDetailsClient({ product, relatedProducts }: ProductDetailsClient
                   onClick={() => setSelectedImage(i)}
                   className={cn(
                     "relative h-20 w-20 shrink-0 overflow-hidden rounded-md border-2 transition-colors",
-                    selectedImage === i ? "border-primary" : "border-transparent hover:border-muted-foreground/30"
+                    selectedImage === i ? "border-primary" : "border-transparent hover:border-muted-foreground/30",
                   )}
                 >
-                  <Image
-                    src={img}
-                    alt={`${product.name} ${i + 1}`}
-                    fill
-                    className="object-cover"
-                    sizes="80px"
-                  />
+                  <Image src={img} alt={`${product.name} ${i + 1}`} fill className="object-cover" sizes="80px" />
                 </button>
               ))}
             </div>
@@ -132,23 +138,15 @@ function ProductDetailsClient({ product, relatedProducts }: ProductDetailsClient
               )}
             </div>
             <h1 className="mt-1 text-3xl font-bold tracking-tight">{product.name}</h1>
-            {product.shortDescription && (
-              <p className="mt-2 text-muted-foreground">{product.shortDescription}</p>
-            )}
+            {product.shortDescription && <p className="mt-2 text-muted-foreground">{product.shortDescription}</p>}
             <div className="mt-3 flex items-center gap-2">
               <StarRating rating={product.rating} size="sm" />
-              {product.reviewCount > 0 && (
-                <span className="text-sm text-muted-foreground">({product.reviewCount} reviews)</span>
-              )}
+              {product.reviewCount > 0 && <span className="text-sm text-muted-foreground">({product.reviewCount} reviews)</span>}
             </div>
           </div>
 
           <div>
-            <PriceDisplay
-              price={displayPrice}
-              salePrice={displayCompareAt}
-              size="lg"
-            />
+            <PriceDisplay price={displayPrice} salePrice={displayCompareAt} size="lg" />
           </div>
 
           {product.variants && product.variants.length > 0 && (
@@ -165,15 +163,11 @@ function ProductDetailsClient({ product, relatedProducts }: ProductDetailsClient
                       selectedVariantId === variant.id
                         ? "border-primary bg-primary/5 font-medium text-primary"
                         : "border-input hover:border-muted-foreground/30",
-                      (!variant.isActive || variant.stock === 0) && "cursor-not-allowed opacity-50"
+                      (!variant.isActive || variant.stock === 0) && "cursor-not-allowed opacity-50",
                     )}
                   >
                     {variant.name}
-                    {variant.price !== product.price && (
-                      <span className="ml-1 text-xs text-muted-foreground">
-                        ({formatPrice(variant.price)})
-                      </span>
-                    )}
+                    {variant.price !== product.price && <span className="ml-1 text-xs text-muted-foreground">({formatPrice(variant.price)})</span>}
                   </button>
                 ))}
               </div>
@@ -181,26 +175,14 @@ function ProductDetailsClient({ product, relatedProducts }: ProductDetailsClient
           )}
 
           <div className="flex items-center gap-4">
-            <QuantitySelector
-              value={quantity}
-              onChange={setQuantity}
-              min={1}
-              max={inStock ? Math.min(stock, 99) : 0}
-            />
-            <Button
-              size="lg"
-              className="flex-1 gap-2"
-              onClick={handleAddToCart}
-              disabled={!inStock || isAdding}
-            >
+            <QuantitySelector value={quantity} onChange={setQuantity} min={1} max={inStock ? Math.min(stock, 99) : 0} />
+            <Button size="lg" className="flex-1 gap-2" onClick={handleAddToCart} disabled={(canUseCart && !inStock) || isAdding}>
               <ShoppingCart className="h-4 w-4" />
-              {isAdding ? "Adding..." : inStock ? "Add to Cart" : "Out of Stock"}
+              {isAdding ? "Adding..." : !canUseCart ? "Sign in to add to cart" : inStock ? "Add to Cart" : "Out of Stock"}
             </Button>
           </div>
 
-          {inStock && stock <= 10 && (
-            <p className="text-sm text-amber-600">Only {stock} left in stock</p>
-          )}
+          {inStock && stock <= 10 && <p className="text-sm text-amber-600">Only {stock} left in stock</p>}
 
           <Separator />
 
@@ -225,15 +207,24 @@ function ProductDetailsClient({ product, relatedProducts }: ProductDetailsClient
 
           <Tabs defaultValue="description">
             <TabsList className="w-full">
-              <TabsTrigger value="description" className="flex-1">Description</TabsTrigger>
-              <TabsTrigger value="ingredients" className="flex-1">Ingredients</TabsTrigger>
-              <TabsTrigger value="allergens" className="flex-1">Allergens</TabsTrigger>
+              <TabsTrigger value="description" className="flex-1">
+                Description
+              </TabsTrigger>
+              <TabsTrigger value="ingredients" className="flex-1">
+                Ingredients
+              </TabsTrigger>
+              <TabsTrigger value="allergens" className="flex-1">
+                Allergens
+              </TabsTrigger>
             </TabsList>
             <TabsContent value="description" className="prose prose-sm max-w-none text-muted-foreground">
               {product.description}
             </TabsContent>
             <TabsContent value="ingredients" className="text-sm text-muted-foreground">
-              <p>Premium wheat flour, butter, sugar, eggs, vanilla extract, chocolate chips (cocoa mass, sugar, cocoa butter, emulsifier: soy lecithin), baking powder, sea salt.</p>
+              <p>
+                Premium wheat flour, butter, sugar, eggs, vanilla extract, chocolate chips (cocoa mass, sugar, cocoa butter, emulsifier: soy lecithin), baking
+                powder, sea salt.
+              </p>
             </TabsContent>
             <TabsContent value="allergens" className="text-sm text-muted-foreground">
               <p>Contains: Wheat (gluten), Dairy (butter), Eggs, Soy. May contain traces of nuts and peanuts.</p>

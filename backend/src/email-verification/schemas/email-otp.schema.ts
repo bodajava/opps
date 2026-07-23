@@ -20,6 +20,9 @@ export class EmailOtp {
   @Prop({ required: true, enum: EmailOtpPurpose })
   purpose: EmailOtpPurpose;
 
+  @Prop({ index: true })
+  verificationFlowHash?: string;
+
   @Prop({ required: true, index: true, expires: 0 })
   expiresAt: Date;
 

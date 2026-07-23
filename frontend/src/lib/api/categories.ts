@@ -1,3 +1,4 @@
+import axios from 'axios';
 import { apiClient, mapApiError } from '@/lib/api-client';
 import type { ApiResponse, Category } from '@/lib/types';
 import { mapCategory, requireDynamicRecord } from './mappers';
@@ -17,7 +18,10 @@ export async function getCategories(): Promise<ApiResponse<Category[]>> {
       })),
     };
   } catch (error) {
-    throw mapApiError(error);
+    if (axios.isAxiosError(error)) {
+      throw mapApiError(error);
+    }
+    throw error;
   }
 }
 
@@ -32,6 +36,9 @@ export async function getCategoryBySlug(slug: string): Promise<ApiResponse<Categ
       data: mapCategory(requireDynamicRecord(envelope.data, 'GET /categories/:slug data')),
     };
   } catch (error) {
-    throw mapApiError(error);
+    if (axios.isAxiosError(error)) {
+      throw mapApiError(error);
+    }
+    throw error;
   }
 }

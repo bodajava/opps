@@ -15,32 +15,26 @@ import { GuestOnlyGuard } from "@/components/auth/guest-only-guard"
 import { Loader2, Eye, EyeOff, UserPlus } from "lucide-react"
 import { toast } from "sonner"
 
-const registerSchema = z.object({
-  fullName: z.string().min(2, "Full name must be at least 2 characters"),
-  email: z.string().email("Please enter a valid email address"),
-  phone: z.string().regex(/^01[0-9]{9}$/, "Please enter a valid Egyptian phone number starting with 01"),
-  password: z.string()
-    .min(8, "Password must be at least 8 characters")
-    .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
-    .regex(/[a-z]/, "Password must contain at least one lowercase letter")
-    .regex(/[0-9]/, "Password must contain at least one number"),
-  confirmPassword: z.string(),
-  marketingConsent: z.boolean().optional(),
-}).refine((data) => data.password === data.confirmPassword, {
-  message: "Passwords do not match",
-  path: ["confirmPassword"],
-})
+const registerSchema = z
+  .object({
+    fullName: z.string().min(2, "Full name must be at least 2 characters"),
+    email: z.string().email("Please enter a valid email address"),
+    phone: z.string().regex(/^01[0-9]{9}$/, "Please enter a valid Egyptian phone number starting with 01"),
+    password: z
+      .string()
+      .min(8, "Password must be at least 8 characters")
+      .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
+      .regex(/[a-z]/, "Password must contain at least one lowercase letter")
+      .regex(/[0-9]/, "Password must contain at least one number"),
+    confirmPassword: z.string(),
+    marketingConsent: z.boolean().optional(),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: "Passwords do not match",
+    path: ["confirmPassword"],
+  })
 
 type RegisterFormValues = z.infer<typeof registerSchema>
-
-function getSafeRegisterError(error: unknown): string {
-  if (error instanceof Error && error.message) return error.message
-  if (error && typeof error === "object" && !Array.isArray(error)) {
-    const record = Object.fromEntries(Object.entries(error))
-    if (typeof record.message === "string" && record.message) return record.message
-  }
-  return "Registration failed. Please check your details and try again."
-}
 
 function RegisterFormContent() {
   const router = useRouter()
@@ -70,10 +64,12 @@ function RegisterFormContent() {
         phone: data.phone || undefined,
         marketingConsent: data.marketingConsent || false,
       })
-      toast.success("Account created successfully!")
-      router.push("/")
-    } catch (err) {
-      setError(getSafeRegisterError(err))
+      toast.success("We sent a verification code to your email.")
+      const returnTo = new URLSearchParams(window.location.search).get("returnTo")
+      const target = returnTo ? `/verify-account?returnTo=${encodeURIComponent(returnTo)}` : "/verify-account"
+      router.push(target)
+    } catch {
+      setError("Registration could not be completed. Please try again.")
     }
   }
 
@@ -85,11 +81,7 @@ function RegisterFormContent() {
       </div>
 
       <form onSubmit={handleSubmit(onSubmit)} className="mt-8 space-y-4">
-        {error && (
-          <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-            {error}
-          </div>
-        )}
+        {error && <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
 
         <div>
           <Label htmlFor="fullName">Full Name</Label>
@@ -112,13 +104,7 @@ function RegisterFormContent() {
         <div>
           <Label htmlFor="password">Password</Label>
           <div className="relative">
-            <Input
-              id="password"
-              type={showPassword ? "text" : "password"}
-              placeholder="At least 8 characters"
-              {...register("password")}
-              className="pr-10"
-            />
+            <Input id="password" type={showPassword ? "text" : "password"} placeholder="At least 8 characters" {...register("password")} className="pr-10" />
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
@@ -168,11 +154,7 @@ function RegisterFormContent() {
         </div>
 
         <Button type="submit" className="w-full" disabled={isSubmitting}>
-          {isSubmitting ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <UserPlus className="mr-2 h-4 w-4" />
-          )}
+          {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UserPlus className="mr-2 h-4 w-4" />}
           Create Account
         </Button>
       </form>

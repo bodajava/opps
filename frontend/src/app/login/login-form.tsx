@@ -13,6 +13,7 @@ import { useAuthStore } from "@/store/auth-store"
 import { GuestOnlyGuard } from "@/components/auth/guest-only-guard"
 import { Loader2, Eye, EyeOff, LogIn } from "lucide-react"
 import { toast } from "sonner"
+import { getRoleName, getSafeReturnPath } from "@/lib/auth-guards"
 
 const loginSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
@@ -41,7 +42,9 @@ function LoginFormContent() {
     try {
       await login(data.email, data.password)
       toast.success("Welcome back!")
-      const returnTo = searchParams.get("returnTo") || searchParams.get("redirect") || "/"
+      const requestedPath = searchParams.get("returnTo") || searchParams.get("redirect")
+      const user = useAuthStore.getState().user
+      const returnTo = getSafeReturnPath(requestedPath, getRoleName(user))
       router.push(returnTo)
     } catch (err) {
       const message = err instanceof Error ? err.message : "Invalid email or password"
@@ -57,33 +60,18 @@ function LoginFormContent() {
       </div>
 
       <form onSubmit={handleSubmit(onSubmit)} className="mt-8 space-y-4">
-        {error && (
-          <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-            {error}
-          </div>
-        )}
+        {error && <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
 
         <div>
           <Label htmlFor="email">Email</Label>
-          <Input
-            id="email"
-            type="email"
-            placeholder="your@email.com"
-            {...register("email")}
-          />
+          <Input id="email" type="email" placeholder="your@email.com" {...register("email")} />
           {errors.email && <p className="mt-1 text-xs text-destructive">{errors.email.message}</p>}
         </div>
 
         <div>
           <Label htmlFor="password">Password</Label>
           <div className="relative">
-            <Input
-              id="password"
-              type={showPassword ? "text" : "password"}
-              placeholder="Enter your password"
-              {...register("password")}
-              className="pr-10"
-            />
+            <Input id="password" type={showPassword ? "text" : "password"} placeholder="Enter your password" {...register("password")} className="pr-10" />
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
@@ -103,11 +91,7 @@ function LoginFormContent() {
         </div>
 
         <Button type="submit" className="w-full" disabled={isSubmitting}>
-          {isSubmitting ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <LogIn className="mr-2 h-4 w-4" />
-          )}
+          {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LogIn className="mr-2 h-4 w-4" />}
           Sign In
         </Button>
       </form>
